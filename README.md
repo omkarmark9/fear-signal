@@ -26,9 +26,9 @@ to validate.
 |---|---|---|
 | H1 M tracks VXN (5-session changes) | Spearman 0.548 (95% CI 0.39–0.67); levels 0.81 | **pass** |
 | H3 / H3b reads high when hit, no false panic | 559/559 three-sigma loss days at Z ≥ 1.5; 0/139 panics without a dip | **pass** |
-| H2 tail forecast calibrated, skilful | slope 0.801 (floor 0.8); Brier skill +0.7% vs climatology (t 1.44) | **pass, barely** |
-| H2b beats an \|x\| EWMA | +1.7% Brier skill | **pass** |
-| H1b v2 market index beats v1's | −0.035 (CI −0.077 to +0.001) | fail |
+| H2 tail forecast calibrated, skilful | slope 0.801 (s.e. 0.118; floor 0.8, fragile); Brier skill +0.7% vs climatology (t 1.44) | **pass, at the boundary** |
+| H2b beats an \|x\| EWMA | +1.7% Brier skill | **claimed** |
+| H1b v2 market index beats v1's | −0.035 (CI −0.077 to +0.001) | not claimed |
 | H4 adds to a HAR volatility forecast | DM-HLN t 0.86 | fail |
 | H5 predicts returns | Hodrick 1B t 0.70 | fail |
 
@@ -41,7 +41,7 @@ stated uncertainty, a fixed yardstick, and claims that can be checked. Full
 write-up: `docs/RESULTS.md`.
 
 Latest reading (2026-11-23): **M = 1.80** (90% band 1.65–1.94), *stressed*;
-74% of AI stocks are in a stressed or panic regime.
+the expected share of AI stocks in a stressed or panic regime is 74%.
 
 ![Market fear and VXN](docs/figures/market_fear.png)
 

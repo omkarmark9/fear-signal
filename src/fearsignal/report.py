@@ -14,8 +14,22 @@ def _ci(d: dict, key: str = "r") -> str:
     return f"{d[key]:.3f} ({d['lo']:.2f}, {d['hi']:.2f})"
 
 
+# Hypotheses that the pre-registration words as "reported; X claimed only if ..."
+CLAIM_TYPE = {"H1b", "H2b"}
+
+
+def verdict_label(hid: str, ok: bool) -> str:
+    if hid in CLAIM_TYPE:
+        return "**claimed**" if ok else "not claimed"
+    return "**pass**" if ok else "fail"
+
+
 def verdicts(res: dict) -> list[tuple[str, str, str, bool | None]]:
-    """(id, statistic, value, passed) for each pre-registered hypothesis."""
+    """(id, statistic, value, passed) for each pre-registered hypothesis.
+
+    H5's pass requires the dev slope's sign, so ``res`` must carry
+    ``_dev_forward_slope_sign`` (``render`` adds it from the dev reference).
+    """
     v = res["vxn"]
     h1 = v["M"]["d5_spearman"]
     h1b = v["H1b_d5_spearman_v2M_minus_v1legacy"]
@@ -24,15 +38,14 @@ def verdicts(res: dict) -> list[tuple[str, str, str, bool | None]]:
     th = res["thermometer"]
     har = res["har_oos"]
     fr = res["forward_returns_20d"]
-    dev_sign = res.get("_dev_forward_slope_sign")
-    h5_pass = fr["hodrick_1b_p"] < 0.05 and (dev_sign is None or
-                                              (fr["slope_per_M"] > 0) == (dev_sign > 0))
+    dev_sign = res["_dev_forward_slope_sign"]
+    h5_pass = fr["hodrick_1b_p"] < 0.05 and (fr["slope_per_M"] > 0) == (dev_sign > 0)
     rows = [
         ("H1", "Spearman ρ(ΔM, ΔVXN), 5-session", _ci(h1), h1["lo"] > 0.30),
         ("H1b", "ρ(ΔM_v2) − ρ(ΔM_v1), paired", f"{h1b['diff']:+.3f} ({h1b['lo']:+.2f}, {h1b['hi']:+.2f})",
          h1b["lo"] > 0),
         ("H2", "Brier skill vs climatology; calibration slope",
-         f"{tf['bss_vs_climatology']:+.2%}; slope {cal['slope']:.2f} (s.e. {cal['se_slope']:.2f}); "
+         f"{tf['bss_vs_climatology']:+.2%}; slope {cal['slope']:.3f} (s.e. {cal['se_slope']:.3f}); "
          f"gain t = {tf['brier_gain_vs_clim_t']:.2f}",
          tf["bss_vs_climatology"] > 0 and 0.8 <= cal["slope"] <= 1.25),
         ("H2b", "Brier skill vs |x| EWMA (x² EWMA)",
@@ -54,18 +67,17 @@ def verdicts(res: dict) -> list[tuple[str, str, str, bool | None]]:
     return rows
 
 
-def render(res: dict, dev: dict | None = None, period: str = "2026") -> str:
-    if dev is not None:
-        res = dict(res, _dev_forward_slope_sign=dev["forward_returns_20d"]["slope_per_M"])
+def render(res: dict, dev: dict, period: str = "2026") -> str:
+    res = dict(res, _dev_forward_slope_sign=dev["forward_returns_20d"]["slope_per_M"])
     v = res["vxn"]
     v1 = res["vxn_v1_published"]
     al = res["alerts"]
     out = [f"Scored sessions: {res['days']} ({res['first_day']} .. {res['last_day']}). "
            f"Frozen spec SHA-256 `{res['frozen_spec_sha256']}`.", ""]
     out += ["### Pre-registered tests", "",
-            f"| id | statistic | {period} value | pass |", "|---|---|---|---|"]
+            f"| id | statistic | {period} value | result |", "|---|---|---|---|"]
     for hid, stat, val, ok in verdicts(res):
-        out.append(f"| {hid} | {stat} | {val} | {'**pass**' if ok else 'fail'} |")
+        out.append(f"| {hid} | {stat} | {val} | {verdict_label(hid, ok)} |")
     out += ["", f"### Market fear against VXN, {period}", "",
             "| reading | Δ5 Spearman (95% CI) | Δ5 Pearson (95% CI) | level Spearman (95% CI) |",
             "|---|---|---|---|"]
@@ -100,10 +112,13 @@ def render(res: dict, dev: dict | None = None, period: str = "2026") -> str:
     return "\n".join(out) + "\n"
 
 
-def write(results_json: Path, results_md: Path, dev_json: Path | None = None) -> None:
+def write(results_json: Path, results_md: Path, dev_json: Path) -> None:
+    """Replace section 2 of RESULTS.md, keeping everything before and after it."""
     res = json.loads(Path(results_json).read_text())
-    dev = json.loads(Path(dev_json).read_text()) if dev_json else None
+    dev = json.loads(Path(dev_json).read_text())
     md = Path(results_md).read_text()
-    head = md[: md.index("## 2. Holdout")]
+    start = md.index("## 2. Holdout")
+    end = md.find("\n## 3.", start)
+    tail = md[end:] if end >= 0 else ""
     section = "## 2. Holdout: the single frozen run on 2026\n\n" + render(res, dev)
-    Path(results_md).write_text(head + section)
+    Path(results_md).write_text(md[:start] + section + tail)

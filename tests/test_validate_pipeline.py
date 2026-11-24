@@ -31,3 +31,13 @@ def test_model_roundtrip_through_frozen_dict():
     np.testing.assert_allclose(m2.emission.s, m.emission.s)
     np.testing.assert_allclose(m2.A, m.A, atol=1e-10)
     assert m2.emission.zero_mode == "state" and m2.emission.censor
+
+
+def test_report_labels_and_dev_requirement():
+    import pytest
+    from fearsignal import report
+    assert report.verdict_label("H1b", False) == "not claimed"
+    assert report.verdict_label("H2b", True) == "**claimed**"
+    assert report.verdict_label("H1", False) == "fail"
+    with pytest.raises(TypeError):
+        report.render({})        # the dev reference is required (H5's same-sign clause)

@@ -28,7 +28,7 @@ the walk-forward was rerun in `7dc63bc`):
 | F3 | major | one walk-forward fit hit the EM cap silently; a quoted π was not an MLE | convergence flag and warning; freeze refuses a non-converged fit; docs corrected; selection unchanged |
 | F4 | major | the x² EWMA baseline was weak (one censored day contributes 100) | \|x\| EWMA added as the primary baseline; skill claims restated |
 | F5 | minor | stitched 5-session changes straddled fold boundaries | changes taken inside each test block (dev gain +0.017 → +0.037) |
-| F6 | minor | wrong scored sample size in the docs | corrected (378 sessions, 48,851 stock-days) |
+| F6 | minor | wrong scored sample size in the docs | corrected (378 sessions; 48,862 stock-days in the log-score comparison, 48,851 in the Brier comparison) |
 | F7 | minor | holdout lock gaps (hash check, VXN loader, download, run-once) | all gated on a committed frozen spec; second run refused without a logged reason |
 | F8 | minor | v1 reference maps refit at holdout time | frozen in the spec; dev file verified against its manifest |
 | F9 | minor | `dropna` before `diff(5)` could stretch changes | differences on the full calendar |
@@ -39,7 +39,23 @@ the walk-forward was rerun in `7dc63bc`):
 | F14 | minor | docstring stated the nesting backwards | fixed |
 | F15 | note | H3 nearly mechanical; H2's significance clause has low power | stated in the pre-registration before the run; H3b added |
 
-## Round 2 — after the single holdout run
+## Round 2 — after the single holdout run (code at `ecd7574`)
 
-See the commit that adds this section for the reviewer's findings on the
-holdout run and how they were handled.
+**Found correct:** the run used the frozen code and spec unchanged
+(`git diff 8714f68 1fa610a -- src tests config` is empty, hash matches), and
+refit nothing. An independent filter driven only by `config/frozen.json`
+reproduces `market_fear.csv` and all 109,216 `stock_fear` rows, and all 200
+replicate bands, to the 4-decimal rounding. The dev/holdout adjustment-basis
+alignment held on the real December-2025 overlap: identical raw prints, an
+adjusted ratio constant per ticker, and first-2026 returns equal to a
+single-pull computation to 1e-7. Every headline number (H1–H6) and alert
+count was recomputed independently and matches the JSON. VXN's 2026 gaps are
+all NYSE holidays, so no five-session change is stretched. All 11 censored
+2026 days are genuine collapses.
+
+| # | severity | finding | resolution |
+|---|---|---|---|
+| P1 | minor | the H2 pass (slope 0.8014 vs floor 0.8, s.e. 0.118) is fragile; "held its calibration" overstated it; table showed 0.80 | slope printed to 3 decimals; leave-one-day-out fragility (0.741–0.830, 83 of 225 single-day drops fall below 0.8) reproduced and reported; wording corrected |
+| P2 | minor | H1b labelled "fail" though pre-registered as "claimed only if"; H5's same-sign clause skipped when dev was not passed | claim-type labels for H1b/H2b; dev reference now required for H5 |
+| P3 | minor | partial SNDK bars on 11-20 and 11-23 (correctly masked); breadth described as a count | footnote added; breadth described as an expected share |
+| P4 | trivial | F6 above cited the Brier sample size as the log-score sample size | corrected |
