@@ -51,6 +51,60 @@ def ols_hac(y: np.ndarray, X: np.ndarray, lags: int) -> dict:
     return {"beta": beta, "se": se, "t": t, "p": p, "n": n, "r2": float(r2)}
 
 
+def hodrick_1b(r: np.ndarray, x: np.ndarray, horizon: int, lags: int = 0) -> dict:
+    """Hodrick (1992) "1B" test of long-horizon predictability.
+
+    The long-horizon regression of sum_{j=1}^{h} r_{t+j} on x_t has
+    overlapping errors; HAC tests built on it over-reject badly in samples of a
+    few hundred days. Under the null of no predictability the slope is zero
+    iff the *reverse* regression of the one-period return r_{t+1} on the
+    rolled-up regressor X_t = sum_{j=0}^{h-1} x_{t-j} has zero slope, and that
+    regression has no overlap in its errors. Under the null r_{t+1} is a
+    martingale difference, so heteroskedasticity-robust (lags = 0) errors
+    suffice; simulated size at n = 225 is about 5-6% against 22% for a
+    Newey-West(h) test on the overlapping regression (tests/test_stats_size.py).
+    """
+    r = np.asarray(r, float)
+    x = np.asarray(x, float)
+    X = pd_rolling_sum(x, horizon)
+    y = np.full(len(r), np.nan)
+    y[:-1] = r[1:]
+    D = np.column_stack([np.ones(len(r)), X])
+    res = ols_hac(y, D, lags=lags)
+    return {"t": float(res["t"][1]), "p": float(res["p"][1]), "n": res["n"]}
+
+
+def pd_rolling_sum(x: np.ndarray, h: int) -> np.ndarray:
+    """sum_{j=0}^{h-1} x_{t-j}; NaN unless all h values are finite."""
+    import pandas as pd
+
+    return pd.Series(np.asarray(x, float)).rolling(h, min_periods=h).sum().to_numpy()
+
+
+def diebold_mariano(d: np.ndarray, horizon: int) -> dict:
+    """DM test of E[d] = 0 for h-step-ahead loss differentials, with the
+    Harvey-Leybourne-Newbold (1997) small-sample correction.
+
+    Under the null, d_t is at most MA(h-1), so the long-run variance uses
+    autocovariances up to lag h-1 with a rectangular kernel; the statistic is
+    scaled by sqrt((n + 1 - 2h + h(h-1)/n) / n) and referred to t(n-1).
+    Falls back to the Bartlett kernel if the rectangular estimate is not
+    positive.
+    """
+    d = np.asarray(d, float)
+    d = d[np.isfinite(d)]
+    n = len(d)
+    u = d - d.mean()
+    gam = [u @ u / n] + [u[k:] @ u[:-k] / n for k in range(1, horizon)]
+    v = gam[0] + 2 * sum(gam[1:])
+    if v <= 0:
+        v = gam[0] + 2 * sum((1 - k / horizon) * g for k, g in enumerate(gam[1:], start=1))
+    dm = d.mean() / np.sqrt(v / n)
+    adj = np.sqrt((n + 1 - 2 * horizon + horizon * (horizon - 1) / n) / n)
+    t = float(dm * adj)
+    return {"mean": float(d.mean()), "t": t, "p_one_sided": float(stats.t.sf(t, df=n - 1)), "n": n}
+
+
 def stationary_bootstrap_indices(n: int, block: float, rng) -> np.ndarray:
     """One stationary-bootstrap resample of range(n) (geometric block lengths)."""
     idx = np.empty(n, dtype=int)
@@ -101,8 +155,14 @@ def corr_diff_ci(a: np.ndarray, b: np.ndarray, v: np.ndarray, method: str = "spe
     return {"diff": est, "lo": float(lo), "hi": float(hi), "n": int(len(a))}
 
 
-def logistic_calibration(q: np.ndarray, y: np.ndarray, iters: int = 50) -> dict:
-    """Fit y ~ Bernoulli(sigmoid(a + b logit q)). Calibrated forecasts give a=0, b=1."""
+def logistic_calibration(q: np.ndarray, y: np.ndarray, groups: np.ndarray | None = None,
+                         iters: int = 50) -> dict:
+    """Fit y ~ Bernoulli(sigmoid(a + b logit q)). Calibrated forecasts give a=0, b=1.
+
+    With ``groups`` (e.g. the day of each stock-day), standard errors are
+    cluster-robust: stock-days on the same date share one market shock and
+    are not independent evidence.
+    """
     q = np.clip(np.asarray(q, float), 1e-9, 1 - 1e-9)
     y = np.asarray(y, float)
     X = np.column_stack([np.ones_like(q), np.log(q / (1 - q))])
@@ -117,7 +177,15 @@ def logistic_calibration(q: np.ndarray, y: np.ndarray, iters: int = 50) -> dict:
         beta = beta + step
         if np.max(np.abs(step)) < 1e-10:
             break
-    cov = np.linalg.inv(H)
+    Hinv = np.linalg.inv(H)
+    cov = Hinv
+    if groups is not None:
+        mu = 1 / (1 + np.exp(-(X @ beta)))
+        score = X * (y - mu)[:, None]
+        _, gidx = np.unique(np.asarray(groups), return_inverse=True)
+        G = np.zeros((gidx.max() + 1, 2))
+        np.add.at(G, gidx, score)
+        cov = Hinv @ (G.T @ G) @ Hinv
     return {"intercept": float(beta[0]), "slope": float(beta[1]),
             "se_intercept": float(np.sqrt(cov[0, 0])), "se_slope": float(np.sqrt(cov[1, 1]))}
 

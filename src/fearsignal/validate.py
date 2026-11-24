@@ -53,21 +53,41 @@ def har_design(R: np.ndarray, extra: np.ndarray | None = None):
 
 # ----------------------------------------------------------------------------- tests
 
+def _d5(s: np.ndarray, v: np.ndarray, dates, mask) -> pd.DataFrame:
+    """5-session changes on the full session calendar, then restricted to mask.
+
+    Differencing before dropping missing values keeps every change exactly
+    five sessions long; a change whose endpoints are not both observed is
+    dropped rather than silently stretched.
+    """
+    df = pd.DataFrame({"s": s, "v": v}, index=dates)
+    return df.diff(5)[mask].dropna()
+
+
 def vxn_construct(sig: Signal, vxn: pd.Series, dates: pd.DatetimeIndex, mask: np.ndarray,
-                  n_boot: int = 2000) -> dict:
+                  n_boot: int = 2000, v1: Signal | None = None) -> dict:
+    """H1 / H1b: correlation of the market reading with VXN.
+
+    ``v1`` is the published v1 model's signal; H1b pairs v2's M with v1's
+    legacy M on the common days.
+    """
     v = vxn.reindex(dates).to_numpy()
     out = {}
     for name, s in (("M", sig.M), ("M_legacy", sig.M_legacy), ("breadth", sig.breadth)):
-        df = pd.DataFrame({"s": s, "v": v}, index=dates)[mask].dropna()
-        d5 = df.diff(5).dropna()
+        lv = pd.DataFrame({"s": s, "v": v}, index=dates)[mask].dropna()
+        d5 = _d5(s, v, dates, mask)
         out[name] = {
-            "level_spearman": stats.corr_ci(df.s, df.v, "spearman", n_boot=n_boot),
+            # levels are far more persistent than changes: longer blocks
+            "level_spearman": stats.corr_ci(lv.s, lv.v, "spearman", block=60, n_boot=n_boot),
             "d5_pearson": stats.corr_ci(d5.s, d5.v, "pearson", n_boot=n_boot),
             "d5_spearman": stats.corr_ci(d5.s, d5.v, "spearman", n_boot=n_boot),
         }
-    df = pd.DataFrame({"a": sig.M, "b": sig.M_legacy, "v": v}, index=dates)[mask].dropna()
-    d5 = df.diff(5).dropna()
-    out["d5_spearman_M_minus_legacy"] = stats.corr_diff_ci(d5.a, d5.b, d5.v, n_boot=n_boot)
+    if v1 is not None:
+        a = _d5(sig.M, v, dates, mask)
+        b = _d5(v1.M_legacy, v, dates, mask)
+        j = a.index.intersection(b.index)
+        out["H1b_d5_spearman_v2M_minus_v1legacy"] = stats.corr_diff_ci(
+            a.loc[j, "s"], b.loc[j, "s"], a.loc[j, "v"], n_boot=n_boot)
     return out
 
 
@@ -95,30 +115,32 @@ def thermometer(sig: Signal, feat: Features, mask: np.ndarray) -> dict:
 
 
 def tail_forecast(sig: Signal, feat: Features, mask: np.ndarray, climatology: float,
-                  q_baseline: np.ndarray | None = None) -> dict:
-    """Brier skill and calibration of q_t = P(x_{t+1} >= 3 | x_<=t)."""
+                  baselines: dict[str, np.ndarray] | None = None) -> dict:
+    """H2 / H2b: Brier skill and calibration of q_t = P(x_{t+1} >= 3 | x_<=t)."""
     y = tail_event(feat.obs, TAIL_THRESHOLD)
     q = np.vstack([np.full((1, y.shape[1]), np.nan), sig.q_next[:-1]])  # aligned to the scored day
     ok = np.isfinite(q) & np.isfinite(y) & mask[:, None]
-    if q_baseline is not None:
-        ok &= np.isfinite(q_baseline)
+    for b in (baselines or {}).values():
+        ok &= np.isfinite(b)
+    day = np.broadcast_to(np.arange(len(y))[:, None], y.shape)[ok]
     qv, yv = q[ok], y[ok]
     brier = float(np.mean((qv - yv) ** 2))
     b_clim = float(np.mean((climatology - yv) ** 2))
     out = {"n": int(ok.sum()), "event_rate": float(yv.mean()), "mean_forecast": float(qv.mean()),
            "brier": brier, "brier_climatology": b_clim, "bss_vs_climatology": 1 - brier / b_clim,
-           "calibration": stats.logistic_calibration(qv, yv),
+           "calibration": stats.logistic_calibration(qv, yv, groups=day),
            "reliability": stats.reliability_table(qv, yv)}
-    if q_baseline is not None:
-        b_base = float(np.mean((q_baseline[ok] - yv) ** 2))
-        out["brier_ewma"] = b_base
-        out["bss_vs_ewma"] = 1 - brier / b_base
-    # day-clustered (then HAC across days) standard error of the Brier gain
+    for name, b in (baselines or {}).items():
+        bb = float(np.mean((b[ok] - yv) ** 2))
+        out[f"brier_{name}"] = bb
+        out[f"bss_vs_{name}"] = 1 - brier / bb
+    # Brier gain vs climatology: averaged within day, then HAC across days
     d = np.where(ok, (q - y) ** 2 - (climatology - y) ** 2, np.nan)
     has = ok.any(axis=1)
-    daily = np.nansum(d[has], axis=1) / ok[has].sum(axis=1)
-    out["brier_minus_clim_daily_mean"] = float(np.mean(daily))
-    out["brier_minus_clim_hac_se"] = stats.newey_west_se_mean(daily, 5)
+    daily = -np.nansum(d[has], axis=1) / ok[has].sum(axis=1)
+    out["brier_gain_vs_clim_daily_mean"] = float(np.mean(daily))
+    out["brier_gain_vs_clim_hac_se"] = stats.newey_west_se_mean(daily, 5)
+    out["brier_gain_vs_clim_t"] = out["brier_gain_vs_clim_daily_mean"] / out["brier_gain_vs_clim_hac_se"]
     return out
 
 
@@ -135,27 +157,35 @@ def har_fit(sig: Signal, R: np.ndarray, mask: np.ndarray) -> dict:
 
 
 def har_oos(sig: Signal, R: np.ndarray, mask: np.ndarray, fitted: dict) -> dict:
-    """Out-of-sample R^2 of frozen HAR and HAR+M coefficients."""
+    """H4: out-of-sample R^2 of frozen HAR and HAR+M; DM-HLN test of the gain."""
     y, X0 = har_design(R)
     _, X1 = har_design(R, sig.M)
     ok = mask & np.isfinite(y) & np.all(np.isfinite(X1), axis=1)
     e0 = y[ok] - X0[ok] @ np.asarray(fitted["beta_har"])
     e1 = y[ok] - X1[ok] @ np.asarray(fitted["beta_har_M"])
     sst = np.sum((y[ok] - y[ok].mean()) ** 2)
-    d = e0**2 - e1**2
+    dm = stats.diebold_mariano(e0**2 - e1**2, horizon=5)
     return {"n": int(ok.sum()), "oos_r2_har": float(1 - e0 @ e0 / sst),
             "oos_r2_har_M": float(1 - e1 @ e1 / sst),
-            "mse_gain_mean": float(d.mean()), "mse_gain_hac_se": stats.newey_west_se_mean(d, 5)}
+            "mse_gain_mean": dm["mean"], "dm_hln_t": dm["t"], "dm_hln_p_one_sided": dm["p_one_sided"]}
 
 
 def forward_returns(sig: Signal, R: np.ndarray, mask: np.ndarray, horizon: int = 20) -> dict:
-    """Does market fear predict the basket's forward return? (secondary)"""
-    fwd = _fwd_sum(np.log1p(R), horizon)
+    """H5: does market fear predict the basket's forward return? (secondary)
+
+    The slope of the overlapping h-day regression is reported for its size;
+    inference uses Hodrick's (1992) 1B reverse regression.
+    """
+    lr = np.log1p(R)
+    fwd = _fwd_sum(lr, horizon)
     ok = mask & np.isfinite(fwd) & np.isfinite(sig.M)
-    res = stats.ols_hac(fwd[ok], np.column_stack([np.ones(ok.sum()), sig.M[ok]]), lags=horizon)
+    res = stats.ols_hac(fwd[ok], np.column_stack([np.ones(ok.sum()), sig.M[ok]]), lags=2 * horizon)
+    # reverse regression restricted to the scored days (regressor history may precede them)
+    r1 = np.where(mask, lr, np.nan)
+    hb = stats.hodrick_1b(r1, sig.M, horizon)
     hi = ok & (sig.M >= 2.0)
     return {"horizon": horizon, "n": res["n"], "slope_per_M": float(res["beta"][1]),
-            "slope_t_hac": float(res["t"][1]), "slope_p_hac": float(res["p"][1]),
+            "hodrick_1b_t": hb["t"], "hodrick_1b_p": hb["p"],
             "mean_fwd_all": float(fwd[ok].mean()),
             "n_days_M_ge_2": int(hi.sum()),
             "mean_fwd_M_ge_2": float(fwd[hi].mean()) if hi.any() else None}

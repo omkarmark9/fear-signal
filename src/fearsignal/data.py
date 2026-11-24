@@ -120,7 +120,14 @@ def write_manifest(name: str, long: pd.DataFrame) -> dict:
 
 
 def verify(name: str) -> bool:
-    """True when the cached parquet matches its committed manifest hash."""
+    """True when the cached parquet matches its committed manifest hash.
+
+    Reading the holdout file, even to hash it, requires a committed frozen spec.
+    """
+    if name != "dev":
+        from .frozen import committed_spec_hash
+
+        committed_spec_hash()
     man = json.loads((ROOT / "data" / f"manifest_{name}.json").read_text())
     long = pd.read_parquet(RAW / f"{name}.parquet")
     return _digest(long) == man["sha256_csv_6dp"]

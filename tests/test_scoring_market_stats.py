@@ -26,7 +26,8 @@ def test_quantile_map_standardises_calibration_sample():
     assert sst.kstest(z, "norm").statistic < 0.01
     grid = np.linspace(-20, 20, 2001)
     assert np.all(np.diff(qm(grid)) >= 0)                 # monotone, incl. extrapolation
-    assert qm(np.array([1e6]))[0] == 6 and qm(np.array([-1e6]))[0] == -6
+    assert qm(np.array([1e6]))[0] == 6
+    assert qm(np.array([-1e6]))[0] == qm.knots_z[0]      # lower tail held flat
     qm2 = scoring.QuantileMap.from_dict(qm.to_dict())
     np.testing.assert_allclose(qm2(grid), qm(grid), atol=1e-5)
 

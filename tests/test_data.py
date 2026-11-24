@@ -68,3 +68,13 @@ def test_align_adjustment_basis_rejects_inconsistent_pulls():
     h.loc[3, "close"] *= 1.01
     with pytest.raises(ValueError):
         data.align_adjustment_basis(d, h)
+
+
+def test_holdout_file_is_unreadable_without_a_committed_frozen_spec(tmp_path, monkeypatch):
+    from fearsignal import frozen
+    monkeypatch.setattr(frozen, "FROZEN_PATH", tmp_path / "frozen.json")
+    monkeypatch.setattr(frozen.committed_spec_hash, "__defaults__", (tmp_path / "frozen.json",))
+    with pytest.raises(config.HoldoutLocked):
+        data.verify("holdout")
+    with pytest.raises(config.HoldoutLocked):
+        data.load_holdout_panel("0" * 64)

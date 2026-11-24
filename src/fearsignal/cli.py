@@ -5,7 +5,7 @@
     fearsignal freeze --stock-spec NAME     fit on 2023-2025, write config/frozen.json
     fearsignal dev-reference                pre-registered metrics, in-sample on dev
     fearsignal download-holdout             bars and VXN through the last full session
-    fearsignal holdout --sha256 HASH        the single frozen run on 2026
+    fearsignal holdout --sha256 HASH        the single frozen run on 2026 (refuses a second run)
     fearsignal latest [--top N]             latest market and stock readings
 """
 
@@ -39,6 +39,8 @@ def main(argv=None) -> None:
     h.add_argument("--end-exclusive", required=True, help="first session NOT to include, e.g. 2026-11-24")
     hr = sub.add_parser("holdout")
     hr.add_argument("--sha256", required=True)
+    hr.add_argument("--rerun-reason", default=None,
+                    help="required to run the holdout again; recorded in outputs/holdout/RUNLOG.md")
     lt = sub.add_parser("latest")
     lt.add_argument("--top", type=int, default=15)
     a = ap.parse_args(argv)
@@ -58,11 +60,12 @@ def main(argv=None) -> None:
         out = pipeline.OUT / "dev" / "dev_reference.json"
         out.write_text(json.dumps(res, indent=2, default=float) + "\n")
     elif a.cmd == "download-holdout":
+        frozen.committed_spec_hash()   # no 2026 bar is fetched before the spec is committed
         # overlap December 2025 so the loader can confirm the two pulls agree
         data.download("holdout", "2025-12-01", a.end_exclusive)
         _fred(a.end_exclusive, "vxn_full.csv")
     elif a.cmd == "holdout":
-        pipeline.holdout(a.sha256)
+        pipeline.holdout(a.sha256, rerun_reason=a.rerun_reason)
     elif a.cmd == "latest":
         import pandas as pd
         mk = pd.read_csv(pipeline.OUT / "holdout" / "market_fear.csv", index_col=0)

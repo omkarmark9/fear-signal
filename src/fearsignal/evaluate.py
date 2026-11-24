@@ -14,8 +14,8 @@ genuine one-step-ahead forecast. Scores:
    zero-inflated likelihood (a strictly proper scoring rule). Differences
    between candidates are summed per day and given Newey-West standard errors.
 2. **Brier score** for the event "next session's low is >= 3 own-sigmas below
-   today's close", against climatology (training frequency) and an EWMA
-   (RiskMetrics, lambda = 0.94) scale forecast.
+   today's close", against climatology (training frequency) and two EWMA
+   (lambda = 0.94) scale forecasts, of |x| (the stronger) and of x^2.
 3. **Construct validity** of the market layer: correlation of 5-session changes
    with 5-session changes in VXN, on the stitched out-of-sample test periods.
    Market candidates: v1's expanding z-score of mean Z, breadth (expected share
@@ -24,8 +24,9 @@ genuine one-step-ahead forecast. Scores:
 
 Candidate set and selection rules are fixed here, before the harness is run:
 
-* stock layer: highest out-of-sample log score; a model with fewer parameters
-  is preferred when it is within one Newey-West standard error of the best
+* stock layer: highest out-of-sample log score; the model with the fewest
+  parameters among those within one Newey-West standard error of the best is
+  selected (coded below as ``selected_stock_model``)
   (S0, the published v1 parameters, was fitted by its author on 2023-2025 and
   so is not out-of-sample on any fold; it is a reference, not a candidate);
 * market layer: highest 5-session-change Spearman correlation with VXN.
@@ -53,29 +54,50 @@ FOLDS = (
 EWMA_LAMBDA = 0.94
 
 
-def load_vxn(path=None) -> pd.Series:
+def load_vxn(path=None, dev_only: bool = True) -> pd.Series:
+    """VXN closes (validation only). Truncated at DEV_END unless dev_only=False,
+    which only the frozen holdout run passes."""
     path = path or (data.RAW / "vxn_dev.csv")
     v = pd.read_csv(path, parse_dates=["observation_date"]).set_index("observation_date")["VXNCLS"]
     v = pd.to_numeric(v, errors="coerce").dropna()
     v.index.name = "date"
+    if dev_only:
+        v = v[v.index <= DEV_END]
     return v
 
 
-def ewma_tail_forecast(obs: Obs, zero_rate: float, lam: float = EWMA_LAMBDA,
+def ewma_tail_forecast(obs: Obs, zero_rate: float, power: int = 1, lam: float = EWMA_LAMBDA,
                        threshold: float = mdl.TAIL_THRESHOLD) -> np.ndarray:
-    """Baseline: q_t from an EWMA of x^2 over each stock's past eligible days."""
+    """Baseline: q_t from an EWMA of |x|^power over each stock's past eligible days.
+
+    The EWMA estimates E|x|^p under a zero-inflated half-normal with scale s,
+    E|x| = (1 - z) s sqrt(2/pi) and E x^2 = (1 - z) s^2, which is inverted for
+    s and mapped to (1 - z) 2 Phi(-threshold / s). power=1 is the stronger
+    baseline (one censored day contributes 10, not 100).
+    """
     T, N = obs.x.shape
     q = np.full((T, N), np.nan)
     v = np.full(N, np.nan)
+    c = (1 - zero_rate) * (np.sqrt(2 / np.pi) if power == 1 else 1.0)
+    seed = 0.8 if power == 1 else 1.0
     for t in range(T):
         have = np.isfinite(v)
-        s = np.sqrt(v / max(1 - zero_rate, 1e-6))
+        s = (v / c) if power == 1 else np.sqrt(v / c)
         q[t] = np.where(have, (1 - zero_rate) * 2 * ndtr(-threshold / s), np.nan)
         el = obs.eligible[t]
-        x2 = np.where(el, obs.x[t] ** 2, np.nan)
-        v = np.where(el & have, lam * v + (1 - lam) * x2, v)
-        v = np.where(el & ~have, x2 + 1.0, v)   # seed at the first eligible day
+        xp = np.where(el, np.abs(obs.x[t]) ** power, np.nan)
+        v = np.where(el & have, lam * v + (1 - lam) * xp, v)
+        v = np.where(el & ~have, xp + seed, v)   # seed at the first eligible day
     return q
+
+
+def d5_within_blocks(s: np.ndarray, v: np.ndarray, block: np.ndarray) -> pd.DataFrame:
+    """5-session changes that never straddle two fold models."""
+    df = pd.DataFrame({"s": s, "v": v})
+    d = df.diff(5)
+    b = pd.Series(block)
+    same = b.eq(b.shift(5)) & (b >= 0)
+    return d[same.to_numpy()].dropna()
 
 
 def _fold_masks(dates: pd.DatetimeIndex):
@@ -97,20 +119,22 @@ def run(n_random: int = 2, seed: int = 0, out_path=None) -> dict:
     nobs_day = np.zeros(T)
     stitched = {c.name: {"B": np.full(T, np.nan), "Mleg": np.full(T, np.nan),
                          "q": np.full((T, N), np.nan)} for c in mdl.CANDIDATES}
-    q_ewma = np.full((T, N), np.nan)
+    q_ewma = {1: np.full((T, N), np.nan), 2: np.full((T, N), np.nan)}
     clim = np.full((T, N), np.nan)
+    block = np.full(T, -1)
     mobs = market.market_observation(obs)
     mkt_hmm_L = np.full(T, np.nan)
 
-    for tr_end, test in _fold_masks(dates):
+    for b, (tr_end, test) in enumerate(_fold_masks(dates)):
+        block[test] = b
         train_obs = obs.slice_time(tr_end)
         z0 = mdl.zero_rate(train_obs)
         test_idx = np.flatnonzero(test)
         nobs_day[test_idx] = obs.eligible[test_idx].sum(axis=1)
         ytr = y_tail[: len(train_obs.dates)]
         clim[test_idx] = np.where(obs.eligible[test_idx], np.nanmean(ytr), np.nan)
-        qe = ewma_tail_forecast(obs, z0)
-        q_ewma[test_idx] = qe[test_idx]
+        for pw in q_ewma:
+            q_ewma[pw][test_idx] = ewma_tail_forecast(obs, z0, power=pw)[test_idx]
         fold = {"train_end": str(tr_end.date()), "test_days": int(test.sum()), "models": {}}
         for spec in mdl.CANDIDATES:
             m = mdl.fit_stock_model(spec, train_obs, n_random=n_random, seed=seed)
@@ -128,7 +152,7 @@ def run(n_random: int = 2, seed: int = 0, out_path=None) -> dict:
             fold["models"][spec.name] = {
                 "loglik_train": m.loglik, "n_params": m.n_params(),
                 "s": e.s.tolist(), "pi": None if e.pi is None else e.pi.tolist(),
-                "A": m.A.tolist(), "iters": len(m.history),
+                "A": m.A.tolist(), "iters": len(m.history), "converged": m.converged,
                 "test_logscore_per_obs": float(fr.logc[test_idx].sum() / obs.eligible[test_idx].sum()),
             }
         # market-level Gaussian HMM on the trimmed cross-sectional summary
@@ -145,71 +169,72 @@ def run(n_random: int = 2, seed: int = 0, out_path=None) -> dict:
 
     scored = np.isfinite(daily_logscore[mdl.CANDIDATES[0].name])
     tot_obs = nobs_day[scored].sum()
-    ref = "S3_state_K3"
-    summ = {}
-    for spec in mdl.CANDIDATES:
-        ls = daily_logscore[spec.name][scored]
-        diff = ls - daily_logscore[ref][scored]
-        q = stitched[spec.name]["q"]
-        ok = np.isfinite(q) & np.isfinite(y_tail)
-        brier = float(np.mean((q[ok] - y_tail[ok]) ** 2))
-        summ[spec.name] = {
-            "logscore_per_obs": float(ls.sum() / tot_obs),
-            "diff_vs_ref_per_obs": float(diff.sum() / tot_obs),
-            "diff_vs_ref_se_per_obs": float(stats.newey_west_se_mean(diff, 10) * len(diff) / tot_obs),
-            "brier": brier,
-        }
-    ok = np.isfinite(clim) & np.isfinite(y_tail) & np.isfinite(q_ewma)
+    summ = {spec.name: {"logscore_per_obs": float(daily_logscore[spec.name][scored].sum() / tot_obs),
+                        "n_params": results["folds"][-1]["models"][spec.name]["n_params"]}
+            for spec in mdl.CANDIDATES}
+    ok = np.isfinite(clim) & np.isfinite(y_tail) & np.isfinite(q_ewma[1]) & np.isfinite(q_ewma[2])
     b_clim = float(np.mean((clim[ok] - y_tail[ok]) ** 2))
-    b_ewma = float(np.mean((q_ewma[ok] - y_tail[ok]) ** 2))
+    b_ewma = {pw: float(np.mean((q[ok] - y_tail[ok]) ** 2)) for pw, q in q_ewma.items()}
+    day = np.broadcast_to(np.arange(T)[:, None], (T, N))
     for name, d in summ.items():
-        d["brier_skill_vs_climatology"] = 1 - d["brier"] / b_clim
-        d["brier_skill_vs_ewma"] = 1 - d["brier"] / b_ewma
         q = stitched[name]["q"]
-        ok2 = np.isfinite(q) & np.isfinite(y_tail)
-        d["calibration"] = stats.logistic_calibration(q[ok2], y_tail[ok2])
+        ok2 = ok & np.isfinite(q)
+        d["brier"] = float(np.mean((q[ok2] - y_tail[ok2]) ** 2))
+        d["brier_skill_vs_climatology"] = 1 - d["brier"] / b_clim
+        d["brier_skill_vs_ewma_abs"] = 1 - d["brier"] / b_ewma[1]
+        d["brier_skill_vs_ewma_sq"] = 1 - d["brier"] / b_ewma[2]
+        d["calibration"] = stats.logistic_calibration(q[ok2], y_tail[ok2], groups=day[ok2])
     # The selection rule compares against the best *out-of-sample* candidate.
     # S0 carries v1's published parameters, which were estimated on 2023-2025
     # and so have already seen every test fold: its scores are not
     # out-of-sample and it is reported for reference only.
-    fair = [c.name for c in mdl.CANDIDATES if not c.fixed]
-    best = max(fair, key=lambda n: summ[n]["logscore_per_obs"])
+    fair = [c for c in mdl.CANDIDATES if not c.fixed]
+    best = max(fair, key=lambda c: summ[c.name]["logscore_per_obs"])
     for spec in mdl.CANDIDATES:
-        diff = daily_logscore[spec.name][scored] - daily_logscore[best][scored]
+        diff = daily_logscore[spec.name][scored] - daily_logscore[best.name][scored]
         summ[spec.name]["diff_vs_best_per_obs"] = float(diff.sum() / tot_obs)
         summ[spec.name]["diff_vs_best_se_per_obs"] = float(
             stats.newey_west_se_mean(diff, 10) * len(diff) / tot_obs)
-    results["best_out_of_sample"] = best
+    # one-standard-error rule: the fewest parameters among candidates within 1 s.e. of the best
+    within = [c for c in fair if summ[c.name]["diff_vs_best_per_obs"]
+              >= -summ[c.name]["diff_vs_best_se_per_obs"]]
+    selected = min(within, key=lambda c: (summ[c.name]["n_params"], -summ[c.name]["logscore_per_obs"]))
+    results["best_out_of_sample"] = best.name
+    results["selected_stock_model"] = selected.name
     results["summary"] = summ
-    results["baselines"] = {"brier_climatology": b_clim, "brier_ewma": b_ewma,
-                            "event_rate_test": float(np.nanmean(y_tail[scored]))}
+    results["baselines"] = {"brier_climatology": b_clim, "brier_ewma_abs": b_ewma[1],
+                            "brier_ewma_sq": b_ewma[2], "n_scored_stock_days": int(ok.sum()),
+                            "n_scored_days": int(scored.sum()),
+                            "event_rate_test": float(np.nanmean(y_tail[ok]))}
 
     # ---- market layer, stitched out-of-sample, against VXN
-    vxn = load_vxn().reindex(dates)
+    # 5-session changes are taken within each fold's test block only, so no
+    # change mixes two fold models.
+    vxn = load_vxn().reindex(dates).to_numpy()
     mk = {}
     series_list = [("market_hmm", "y", mkt_hmm_L)]
     for spec in mdl.CANDIDATES:
         series_list.append((spec.name, "breadth", scoring.logit(stitched[spec.name]["B"])))
         series_list.append((spec.name, "M_legacy", stitched[spec.name]["Mleg"]))
     for name, label, series in series_list:
-        df = pd.DataFrame({"s": series, "v": vxn.to_numpy()}, index=dates)[scored].dropna()
-        d5 = df.diff(5).dropna()
+        lv = pd.DataFrame({"s": series, "v": vxn})[scored].dropna()
+        d5 = d5_within_blocks(series, vxn, block)
         mk[f"{name}:{label}"] = {
-            "level_spearman": stats.corr_ci(df["s"], df["v"], "spearman", n_boot=500),
+            "level_spearman": stats.corr_ci(lv["s"], lv["v"], "spearman", block=60, n_boot=500),
             "d5_pearson": stats.corr_ci(d5["s"], d5["v"], "pearson", n_boot=500),
             "d5_spearman": stats.corr_ci(d5["s"], d5["v"], "spearman", n_boot=500),
         }
     for spec in mdl.CANDIDATES:
-        df = pd.DataFrame({"a": scoring.logit(stitched[spec.name]["B"]),
-                           "b": stitched[spec.name]["Mleg"], "v": vxn.to_numpy()},
-                          index=dates)[scored].dropna()
-        d5 = df.diff(5).dropna()
+        a = d5_within_blocks(scoring.logit(stitched[spec.name]["B"]), vxn, block)
+        b = d5_within_blocks(stitched[spec.name]["Mleg"], vxn, block)
+        j = a.index.intersection(b.index)
         mk[f"{spec.name}:breadth_minus_legacy_d5_spearman"] = stats.corr_diff_ci(
-            d5["a"], d5["b"], d5["v"], n_boot=1000)
+            a.loc[j, "s"], b.loc[j, "s"], a.loc[j, "v"], n_boot=1000)
     results["market_vs_vxn"] = mk
     np.savez_compressed(
         (out_path.parent if out_path else data.ROOT / "outputs" / "dev") / "walkforward_daily.npz",
         dates=dates.values.astype("datetime64[D]").astype(str), scored=scored, nobs=nobs_day,
+        block=block,
         **{f"logscore__{k}": v for k, v in daily_logscore.items()},
         **{f"breadth__{k}": v["B"] for k, v in stitched.items()},
         **{f"mlegacy__{k}": v["Mleg"] for k, v in stitched.items()},

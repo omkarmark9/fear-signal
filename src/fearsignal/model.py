@@ -37,16 +37,23 @@ CANDIDATES = (
 )
 
 
+# Generic EM starting points. They are round numbers chosen from theory, not
+# estimates: the calm scale is 1 by the reflection principle, and stress and
+# panic are "somewhat" and "much" wider. v1's published values are
+# deliberately not used, because they were estimated on 2023-2025 and would
+# leak full-sample information into the walk-forward folds.
+_START_S = {2: (1.0, 2.2), 3: (1.0, 1.6, 4.0), 4: (0.9, 1.35, 2.3, 4.6)}
+
+
 def _base_scales(K: int) -> np.ndarray:
-    return {2: np.array([1.0, 2.2]), 3: V1_S, 4: np.array([0.9, 1.35, 2.3, 4.6])}[K]
+    return np.array(_START_S[K], float)
 
 
 def _base_A(K: int) -> np.ndarray:
-    if K == 3:
-        return V1_A.copy()
-    A = np.full((K, K), 0.04 / (K - 1)) + np.eye(K) * 0.96
-    A[-1] = np.full(K, 0.5 / (K - 1))
-    A[-1, -1] = 0.5
+    """Persistent ordinary regimes, a short-lived top regime."""
+    A = np.full((K, K), 0.06 / (K - 1)) + np.eye(K) * 0.94
+    A[-1] = np.full(K, 0.6 / (K - 1))
+    A[-1, -1] = 0.4
     return A / A.sum(axis=1, keepdims=True)
 
 

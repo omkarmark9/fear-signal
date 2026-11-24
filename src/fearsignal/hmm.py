@@ -34,8 +34,9 @@ CENSORED   x >= c                                    (1-pi_k) 2 (1 - Phi(c/s_k))
 * ``"none"``  (v1): no-dip days carry no evidence (e = 1) and pi is absent.
 * ``"shared"``: one pi for all states. This is the likelihood-based version
   of "no evidence": a state-independent atom cannot move the filter.
-* ``"state"``: pi_k free per state. Nested in "shared"; the likelihood-ratio
-  statistic tests whether no-dip days are informative.
+* ``"state"``: pi_k free per state. "shared" is nested in it (pi_k all
+  equal); the likelihood-ratio statistic tests whether no-dip days are
+  informative.
 
 ``censor=False`` (v1) evaluates the density at the clip value instead of
 the survival function.
@@ -54,6 +55,7 @@ Each EM iteration cannot decrease the likelihood (tested).
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field, replace
 
 import numpy as np
@@ -305,6 +307,7 @@ class HMM:
     loglik: float = float("nan")
     n_obs: int = 0
     history: list = field(default_factory=list)
+    converged: bool = False
 
     @property
     def K(self) -> int:
@@ -349,11 +352,13 @@ def em(model: HMM, obs: Obs, max_iter: int = 500, tol: float = 1e-8,
     em_ = model.emission
     A = model.A.copy()
     hist: list[float] = []
+    converged = False
     for _ in range(max_iter):
         logE = em_.log_emissions(obs)
         fr, gamma, xi, g0 = smooth(logE, A, init, start, end)
         hist.append(fr.loglik)
         if len(hist) > 1 and abs(hist[-1] - hist[-2]) <= tol * abs(hist[-2]):
+            converged = True
             break
         A = xi / xi.sum(axis=1, keepdims=True)
         if fit_init and len(g0):
@@ -361,11 +366,18 @@ def em(model: HMM, obs: Obs, max_iter: int = 500, tol: float = 1e-8,
         em_ = em_.m_step(obs, gamma)
     else:  # iteration budget exhausted: score the final update
         hist.append(forward(em_.log_emissions(obs), A, init, start, end).loglik)
+    if not converged:
+        warnings.warn(f"EM stopped at max_iter={max_iter} before reaching tol={tol:g}",
+                      RuntimeWarning, stacklevel=2)
     n_obs = int(obs.eligible.sum())
-    return HMM(em_, A, init, hist[-1], n_obs, hist).canonical()
+    return HMM(em_, A, init, hist[-1], n_obs, hist, converged).canonical()
 
 
 def fit(starts: list[HMM], obs: Obs, **kw) -> HMM:
-    """Run EM from several starting points and keep the best likelihood."""
+    """Run EM from several starting points and keep the best likelihood.
+
+    The winner's ``converged`` flag says whether *it* met the tolerance; a
+    non-converged winner is a lower bound on the attainable likelihood.
+    """
     fits = [em(m, obs, **kw) for m in starts]
     return max(fits, key=lambda m: m.loglik)

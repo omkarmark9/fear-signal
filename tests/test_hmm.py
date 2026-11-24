@@ -90,6 +90,7 @@ def test_shared_atom_carries_no_evidence():
     assert np.ptp(m.emission.log_emissions(obs)[0, 0]) < 1e-8
 
 
+@pytest.mark.filterwarnings("ignore:EM stopped")
 @pytest.mark.parametrize("zero_mode,censor", [("none", False), ("shared", True), ("state", True)])
 def test_em_is_monotone(zero_mode, censor):
     rng = np.random.default_rng(1)
@@ -170,3 +171,13 @@ def test_stationary_distribution():
     p = hmm.stationary(A_V1)
     np.testing.assert_allclose(p @ A_V1, p, atol=1e-14)
     assert abs(p.sum() - 1) < 1e-14
+
+
+def test_em_reports_convergence():
+    rng = np.random.default_rng(9)
+    obs, _ = simulate_halfnormal(S_V1, A_V1, PI, T=200, N=10, rng=rng)
+    with pytest.warns(RuntimeWarning, match="EM stopped"):
+        capped = hmm.em(_model("state"), obs, max_iter=3, tol=0)
+    assert not capped.converged
+    done = hmm.em(_model("none", False), obs, max_iter=2000, tol=1e-8)
+    assert done.converged

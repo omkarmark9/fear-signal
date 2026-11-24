@@ -56,10 +56,15 @@ def freeze(stock_spec: str, n_boot: int = 200, seed: int = 20260101,
     feat = features.compute(panel)
     obs = feat.obs
     spec = _spec(stock_spec)
-    point = mdl.fit_stock_model(spec, obs, n_random=4, seed=seed, max_iter=4000, tol=1e-11)
+    if spec.fixed:
+        raise ValueError(f"{stock_spec} has fixed published parameters; it cannot be frozen as v2")
+    point = mdl.fit_stock_model(spec, obs, n_random=4, seed=seed, max_iter=6000, tol=1e-11)
+    if not point.converged:
+        raise RuntimeError("point estimate did not converge; refusing to freeze")
     z_map, m_map = mdl.fit_maps(point, obs)
     z0 = mdl.zero_rate(obs)
-    reps = bootstrap.replicate_fits(point, obs, n_boot=n_boot, seed=seed)
+    reps = bootstrap.replicate_fits(point, obs, n_boot=n_boot, seed=seed, max_iter=3000, tol=1e-9)
+    v1_z_map, v1_m_map = mdl.fit_maps(_v1_model(), obs)
     rep_entries = []
     for r in reps:
         L, BL = _calibration_values(r, obs)
@@ -81,7 +86,9 @@ def freeze(stock_spec: str, n_boot: int = 200, seed: int = 20260101,
         "universe": list(panel.tickers),
         "stock_spec": asdict(spec),
         "stock_model": model_to_dict(point),
-        "stock_model_fit": {"loglik": point.loglik, "n_obs": point.n_obs, "iters": len(point.history)},
+        "stock_model_fit": {"loglik": point.loglik, "n_obs": point.n_obs,
+                            "iters": len(point.history), "converged": point.converged},
+        "v1_reference_maps": {"z_map": v1_z_map.to_dict(), "m_map": v1_m_map.to_dict()},
         "state_names": list(STATE_NAMES[: spec.K]) if spec.K == 3 else [f"state{k}" for k in range(spec.K)],
         "dev_zero_rate": z0,
         "dev_tail_climatology": float(np.nanmean(y_tail)),
@@ -89,6 +96,7 @@ def freeze(stock_spec: str, n_boot: int = 200, seed: int = 20260101,
         "m_map": m_map.to_dict(),
         "bootstrap": {"block": bootstrap.BLOCK, "n_boot": n_boot, "seed": seed,
                       "band_level": BAND_LEVEL,
+                      "n_converged": int(sum(r.converged for r in reps)),
                       "parameter_table": bootstrap.parameter_table(point, reps),
                       "replicates": rep_entries},
         "har": har,
@@ -168,19 +176,22 @@ def _metrics(spec_doc, feat, mask_from, vxn, applied=None) -> dict:
     el_days = obs.eligible.any(axis=1)
     mask = el_days if mask_from is None else el_days & (obs.dates >= pd.Timestamp(mask_from))
     R = validate.basket_returns(feat)
-    q_ewma = evaluate.ewma_tail_forecast(obs, spec_doc["dev_zero_rate"])
-    v1 = mdl.compute_signal(  # the published v1 model, scored identically (its own dev maps)
-        hmm.HMM(hmm.HalfNormalEmission(mdl.V1_S.copy(), None, "none", False), mdl.V1_A.copy()),
-        obs, *_v1_maps(), spec_doc["dev_zero_rate"])
+    q_abs = evaluate.ewma_tail_forecast(obs, spec_doc["dev_zero_rate"], power=1)
+    q_sq = evaluate.ewma_tail_forecast(obs, spec_doc["dev_zero_rate"], power=2)
+    baselines = {"ewma_abs": q_abs, "ewma_sq": q_sq}
+    vm = spec_doc["v1_reference_maps"]
+    v1 = mdl.compute_signal(  # the published v1 model, scored identically with its frozen dev maps
+        _v1_model(), obs, scoring.QuantileMap.from_dict(vm["z_map"]),
+        scoring.QuantileMap.from_dict(vm["m_map"]), spec_doc["dev_zero_rate"])
     return {
         "days": int(mask.sum()),
         "first_day": str(obs.dates[mask][0].date()), "last_day": str(obs.dates[mask][-1].date()),
-        "vxn": validate.vxn_construct(sig, vxn, obs.dates, mask),
+        "vxn": validate.vxn_construct(sig, vxn, obs.dates, mask, v1=v1),
         "vxn_v1_published": validate.vxn_construct(v1, vxn, obs.dates, mask),
         "thermometer": validate.thermometer(sig, feat, mask),
         "thermometer_v1_published": validate.thermometer(v1, feat, mask),
-        "tail_forecast": validate.tail_forecast(sig, feat, mask, spec_doc["dev_tail_climatology"], q_ewma),
-        "tail_forecast_v1_published": validate.tail_forecast(v1, feat, mask, spec_doc["dev_tail_climatology"], q_ewma),
+        "tail_forecast": validate.tail_forecast(sig, feat, mask, spec_doc["dev_tail_climatology"], baselines),
+        "tail_forecast_v1_published": validate.tail_forecast(v1, feat, mask, spec_doc["dev_tail_climatology"], baselines),
         "har_oos": validate.har_oos(sig, R, mask, spec_doc["har"]),
         "forward_returns_20d": validate.forward_returns(sig, R, mask, 20),
         "forward_returns_5d": validate.forward_returns(sig, R, mask, 5),
@@ -189,32 +200,42 @@ def _metrics(spec_doc, feat, mask_from, vxn, applied=None) -> dict:
     }
 
 
-_V1_MAPS_CACHE: dict = {}
+def _v1_model() -> hmm.HMM:
+    """The v1 starting point exactly as published (no refit)."""
+    return hmm.HMM(hmm.HalfNormalEmission(mdl.V1_S.copy(), None, "none", False), mdl.V1_A.copy())
 
 
-def _v1_maps():
-    """Quantile maps for the published v1 model, fitted on dev (as v1 did)."""
-    if "maps" not in _V1_MAPS_CACHE:
-        obs = features.compute(data.load_dev_panel()).obs
-        v1 = hmm.HMM(hmm.HalfNormalEmission(mdl.V1_S.copy(), None, "none", False), mdl.V1_A.copy())
-        _V1_MAPS_CACHE["maps"] = mdl.fit_maps(v1, obs)
-    return _V1_MAPS_CACHE["maps"]
+def holdout(presented_sha256: str, rerun_reason: str | None = None) -> dict:
+    """The single frozen run on 2026. Writes outputs/holdout/*.
 
-
-def holdout(presented_sha256: str) -> dict:
-    """The single frozen run on 2026. Writes outputs/holdout/*."""
+    Refuses to run a second time unless a reason is given; every run is
+    appended to outputs/holdout/RUNLOG.md with the spec hash and the reason.
+    """
+    out = OUT / "holdout"
+    log = out / "RUNLOG.md"
+    if (out / "holdout_results.json").exists() and not rerun_reason:
+        raise RuntimeError("the holdout has already been run; pass a rerun reason to run it again")
+    if not data.verify("dev"):
+        raise RuntimeError("data/raw/dev.parquet does not match data/manifest_dev.json")
     panel = data.load_holdout_panel(presented_sha256)
     spec_doc = frozen.load()
     feat = features.compute(panel)
-    vxn = evaluate.load_vxn(data.RAW / "vxn_full.csv")
+    vxn = evaluate.load_vxn(data.RAW / "vxn_full.csv", dev_only=False)
     applied = apply(spec_doc, feat)
     res = _metrics(spec_doc, feat, mask_from=spec_doc["holdout_start"], vxn=vxn, applied=applied)
     res["frozen_spec_sha256"] = presented_sha256
+    res["holdout_manifest_sha256"] = json.loads(
+        (ROOT / "data" / "manifest_holdout.json").read_text())["sha256_csv_6dp"]
     sig, M_band, Z_band = applied
     mk, st = signal_frames(sig, M_band, Z_band, feat.obs, spec_doc["state_names"])
-    out = OUT / "holdout"
     out.mkdir(parents=True, exist_ok=True)
     (out / "holdout_results.json").write_text(json.dumps(res, indent=2, default=float) + "\n")
     mk.round(4).to_csv(out / "market_fear.csv")
     st.round(4).to_csv(out / "stock_fear.csv.gz", index=False, compression="gzip")
+    stamp = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M UTC")
+    with open(log, "a") as fh:
+        if fh.tell() == 0:
+            fh.write("# Holdout run log\n\n| when | frozen spec sha256 | last session | reason |\n|---|---|---|---|\n")
+        fh.write(f"| {stamp} | `{presented_sha256[:16]}…` | {res['last_day']} | "
+                 f"{rerun_reason or 'first and only planned run'} |\n")
     return res

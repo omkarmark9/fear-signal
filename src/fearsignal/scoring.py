@@ -12,8 +12,9 @@ emission means (already on a log scale) in place of ln s_k.
 
 L = logit(p) is mapped to a standard-normal score through a frozen,
 monotone quantile map fitted on the calibration window:
-Z = Phi^{-1}(F_cal(L)), linearly extrapolated beyond the calibration range
-using the slope of the outer 0.5 standard deviations, and clipped to +-6.
+Z = Phi^{-1}(F_cal(L)), linearly extrapolated above the calibration range
+using the slope of the top 0.5 standard deviations, held flat below it, and
+clipped to +-6.
 F = 100 Phi(Z).
 """
 
@@ -64,7 +65,12 @@ class QuantileMap:
         hi = z >= z[-1] - tail
         slope_lo = float(np.polyfit(L[lo], z[lo], 1)[0]) if np.ptp(L[lo]) > 0 else 0.0
         slope_hi = float(np.polyfit(L[hi], z[hi], 1)[0]) if np.ptp(L[hi]) > 0 else 0.0
-        return cls(L, z, max(slope_lo, 0.0), max(slope_hi, 0.0))
+        # The lower tail is not extrapolated: below the calibration minimum a
+        # stock is simply "as calm as anything seen", and a steep fitted slope
+        # there would push mean-Z (v1's market index) and I around for no
+        # reason. The upper tail is extrapolated so new extremes can exceed
+        # the dev maximum.
+        return cls(L, z, 0.0, max(slope_hi, 0.0))
 
     def __call__(self, L: np.ndarray) -> np.ndarray:
         L = np.asarray(L, float)
