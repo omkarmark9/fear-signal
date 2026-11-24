@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+build/
+dist/
+
+# Raw market data is downloaded on demand and never committed (vendor terms);
+# data/manifest_*.json records row counts and hashes so runs are verifiable.
+data/raw/
+
+# Scratch
+*.log
+.DS_Store
