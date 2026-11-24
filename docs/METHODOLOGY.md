@@ -73,8 +73,10 @@ The code implements a general emission so the following could be tested:
 Both lose out of sample. On the pre-declared walk-forward (§7) the refit v1
 model has the best one-step predictive log score; the censored shared-atom
 model is 0.0006 nats/obs worse (s.e. 0.0008) and the free-atom model 0.0011
-worse (s.e. 0.0010). The free atom is also unstable: its panic π is 0.67 when
-trained through mid-2024 and ≈ 0 later. With the differences inside one
+worse (s.e. 0.0010). The free atom is also unstable. Trained through mid-2024
+its likelihood is multimodal and slow to converge: π_panic sits at 0.65
+after 1,500 iterations and is still moving. The later folds converge to
+π_panic ≈ 0. With the differences inside one
 standard error, the selection rule keeps the model with fewer parameters,
 which is v1's. The in-sample likelihood-ratio test was misleading because
 it treats 79,000 stock-days as independent evidence, when they share a handful
@@ -172,8 +174,21 @@ q_t = P(x_{t+1} ≥ 3 | x_≤t) = Σ_k (α_t A)_k (1 − π_k) 2Φ(−3/s_k),
 
 the probability that tomorrow's low is at least three own-sigmas below
 today's close. It is scored with the Brier score and logistic calibration
-(slope 1, intercept 0 when calibrated), against climatology and an EWMA
-(RiskMetrics λ = 0.94) baseline.
+(slope 1, intercept 0 when calibrated; standard errors clustered by day,
+because stock-days on one date share a market shock). The baselines are
+climatology and EWMA (λ = 0.94) scale forecasts of |x| and of x², mapped
+through the same zero-inflated half-normal tail.
+
+**Inference for overlapping horizons.** Forward-return and forward-volatility
+tests use overlapping windows. In samples of a few hundred days, Newey–West
+t-tests on such regressions over-reject badly: the simulated size of a
+nominal 5% test of 20-day returns at n = 225 is 22%. Return predictability
+is therefore tested with Hodrick's (1992) 1B reverse regression, which
+regresses the one-day return on the rolled-up regressor
+Σ_{j<h} M_{t−j}. Its errors do not overlap, and its simulated size is 5–6%.
+The volatility-forecast gain is tested with Diebold–Mariano using the
+Harvey–Leybourne–Newbold correction (simulated size 4.7%). Both size checks
+are in `tests/test_stats_size.py`.
 
 **Parameter uncertainty.** What limits precision is the handful of stress
 episodes, which all stocks share. Replicates come from a synchronised
@@ -198,9 +213,9 @@ refitting everything on each training window. The full results are in
   2023–2025, so they have seen every test fold. S0 is a reference, not a
   candidate.
 * **Market layer:** breadth from S1. Its 5-session-change correlation with
-  VXN (Spearman 0.635, Pearson 0.669) beats v1's expanding z-score on the
-  same filter (0.618, 0.601). The paired Spearman gain, +0.017 with 95% CI
-  [−0.045, 0.056], is not significant on 373 dev days.
+  VXN (Spearman 0.661, Pearson 0.679) beats v1's expanding z-score on the
+  same filter (0.624, 0.604). The paired Spearman gain is +0.037, with 95% CI
+  [0.001, 0.066], over 363 within-fold changes.
 
 ## 8. Limitations
 
