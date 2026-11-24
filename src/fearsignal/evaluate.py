@@ -25,7 +25,9 @@ genuine one-step-ahead forecast. Scores:
 Candidate set and selection rules are fixed here, before the harness is run:
 
 * stock layer: highest out-of-sample log score; a model with fewer parameters
-  is preferred when it is within one Newey-West standard error of the best;
+  is preferred when it is within one Newey-West standard error of the best
+  (S0, the published v1 parameters, was fitted by its author on 2023-2025 and
+  so is not out-of-sample on any fold; it is a reference, not a candidate);
 * market layer: highest 5-session-change Spearman correlation with VXN.
 """
 
@@ -33,6 +35,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -81,7 +84,8 @@ def _fold_masks(dates: pd.DatetimeIndex):
         yield tr_end, (dates > tr_end) & (dates <= te_end)
 
 
-def run(n_random: int = 3, seed: int = 0, out_path=None) -> dict:
+def run(n_random: int = 2, seed: int = 0, out_path=None) -> dict:
+    out_path = Path(out_path) if out_path else None
     panel = data.load_dev_panel()
     feat = features.compute(panel)
     obs = feat.obs
@@ -164,6 +168,18 @@ def run(n_random: int = 3, seed: int = 0, out_path=None) -> dict:
         q = stitched[name]["q"]
         ok2 = np.isfinite(q) & np.isfinite(y_tail)
         d["calibration"] = stats.logistic_calibration(q[ok2], y_tail[ok2])
+    # The selection rule compares against the best *out-of-sample* candidate.
+    # S0 carries v1's published parameters, which were estimated on 2023-2025
+    # and so have already seen every test fold: its scores are not
+    # out-of-sample and it is reported for reference only.
+    fair = [c.name for c in mdl.CANDIDATES if not c.fixed]
+    best = max(fair, key=lambda n: summ[n]["logscore_per_obs"])
+    for spec in mdl.CANDIDATES:
+        diff = daily_logscore[spec.name][scored] - daily_logscore[best][scored]
+        summ[spec.name]["diff_vs_best_per_obs"] = float(diff.sum() / tot_obs)
+        summ[spec.name]["diff_vs_best_se_per_obs"] = float(
+            stats.newey_west_se_mean(diff, 10) * len(diff) / tot_obs)
+    results["best_out_of_sample"] = best
     results["summary"] = summ
     results["baselines"] = {"brier_climatology": b_clim, "brier_ewma": b_ewma,
                             "event_rate_test": float(np.nanmean(y_tail[scored]))}
@@ -183,7 +199,21 @@ def run(n_random: int = 3, seed: int = 0, out_path=None) -> dict:
             "d5_pearson": stats.corr_ci(d5["s"], d5["v"], "pearson", n_boot=500),
             "d5_spearman": stats.corr_ci(d5["s"], d5["v"], "spearman", n_boot=500),
         }
+    for spec in mdl.CANDIDATES:
+        df = pd.DataFrame({"a": scoring.logit(stitched[spec.name]["B"]),
+                           "b": stitched[spec.name]["Mleg"], "v": vxn.to_numpy()},
+                          index=dates)[scored].dropna()
+        d5 = df.diff(5).dropna()
+        mk[f"{spec.name}:breadth_minus_legacy_d5_spearman"] = stats.corr_diff_ci(
+            d5["a"], d5["b"], d5["v"], n_boot=1000)
     results["market_vs_vxn"] = mk
+    np.savez_compressed(
+        (out_path.parent if out_path else data.ROOT / "outputs" / "dev") / "walkforward_daily.npz",
+        dates=dates.values.astype("datetime64[D]").astype(str), scored=scored, nobs=nobs_day,
+        **{f"logscore__{k}": v for k, v in daily_logscore.items()},
+        **{f"breadth__{k}": v["B"] for k, v in stitched.items()},
+        **{f"mlegacy__{k}": v["Mleg"] for k, v in stitched.items()},
+        market_hmm_L=mkt_hmm_L)
     results["dev_end"] = str(DEV_END.date())
     if out_path:
         with open(out_path, "w") as fh:
