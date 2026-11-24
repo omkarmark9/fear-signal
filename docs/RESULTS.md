@@ -70,4 +70,115 @@ reading as "the expected share of AI stocks in a fear regime".
 
 ## 2. Holdout: the single frozen run on 2026
 
-*Pending: added by the commit that runs the frozen specification.*
+Scored sessions: 225 (2026-01-02 .. 2026-11-23). Frozen spec SHA-256 `7be905b1633d28dbfef438d1d57cee0578266f674ab98b2556ca833015574ae5`.
+
+### Pre-registered tests
+
+| id | statistic | 2026 value | pass |
+|---|---|---|---|
+| H1 | Spearman ρ(ΔM, ΔVXN), 5-session | 0.548 (0.39, 0.67) | **pass** |
+| H1b | ρ(ΔM_v2) − ρ(ΔM_v1), paired | -0.035 (-0.08, +0.00) | fail |
+| H2 | Brier skill vs climatology; calibration slope | +0.72%; slope 0.80 (s.e. 0.12); gain t = 1.44 | **pass** |
+| H2b | Brier skill vs |x| EWMA (x² EWMA) | +1.69% (+2.48%) | **pass** |
+| H3 | 3-sigma loss days with Z ≥ 1.5 | 1.000 of 559 | **pass** |
+| H3b | Z ≥ 2.5 readings with no 2-sigma dip in 5 sessions | 0.000 of 139 | **pass** |
+| H4 | HAR+M vs HAR, OOS R²; DM-HLN | -0.041 → 0.011; t = 0.86, p = 0.196 | fail |
+| H5 | 20-day return slope on M; Hodrick 1B | +0.0332 per unit M; t = 0.70, p = 0.482 | fail |
+
+### Market fear against VXN, 2026
+
+| reading | Δ5 Spearman (95% CI) | Δ5 Pearson (95% CI) | level Spearman (95% CI) |
+|---|---|---|---|
+| v2 M (breadth) | 0.548 (0.39, 0.67) | 0.515 (0.38, 0.65) | 0.806 (0.68, 0.87) |
+| v1 expanding z-score, v2 filter | 0.575 (0.43, 0.69) | 0.593 (0.47, 0.70) | 0.771 (0.62, 0.86) |
+| v1 as published (expanding z-score) | 0.583 (0.44, 0.69) | 0.608 (0.49, 0.71) | 0.785 (0.64, 0.87) |
+
+### Alerts, 2026
+
+VXN 'elevated' = at or above its dev 80th percentile (22.69); base rate 68.0%, mean VXN 25.0.
+
+| rule | days | VXN elevated on those days | mean VXN |
+|---|---|---|---|
+| M ≥ 2 | 4 | 100.0% | 35.9 |
+| high conviction: M_lo ≥ 2 | 1 | 100.0% | 38.3 |
+
+### Tail forecast, 2026
+
+Event rate 3.65% over 30,148 stock-days; mean forecast 3.80%. Brier skill vs climatology: v2 +0.72%, v1 published +0.69%.
+
+| forecast bin | stock-days | mean forecast | observed |
+|---|---|---|---|
+| [0.01,0.02) | 7,762 | 1.639% | 1.791% |
+| [0.02,0.05) | 13,857 | 3.300% | 3.406% |
+| [0.05,0.1) | 8,164 | 6.335% | 5.598% |
+| [0.1,0.2) | 365 | 12.112% | 8.493% |
+
+### Forward basket returns (secondary)
+
+20-day: slope +0.0332 log-return per unit of M, Hodrick 1B t = 0.70; mean 20-day return +1.54% on all days and -0.63% on the 2 days with M ≥ 2. 5-day: slope +0.0097, 1B t = 0.80.
+
+![Market fear and VXN](figures/market_fear.png)
+
+![Tail forecast calibration](figures/tail_reliability.png)
+
+## 3. Verdict
+
+Applying the pre-registered mapping to the single 2026 run:
+
+**Validated fear thermometer (H1, H3, H3b pass).** With every parameter
+frozen on 2023–2025, five-session changes in M track five-session changes in
+VXN at ρ = 0.55 (95% CI 0.39–0.67), and the level correlation is 0.81. Every
+one of 559 three-sigma loss days read Z ≥ 1.5, and no panic reading arrived
+without a visible hit. VXN never enters the signal, so this is construct
+validity, not fitting.
+
+**Calibrated tail-risk forecaster — only just (H2 passes, H2b passes).**
+q's calibration slope is 0.801 against a pre-registered floor of 0.8. Its
+Brier skill is +0.7% over climatology (t = 1.44, not significant, as the
+pre-registration anticipated) and +1.7% over an |x| EWMA. The top forecast
+bin over-predicts (12.1% forecast vs 8.5% observed). A slope below 1 means
+the forecasts were somewhat too spread out: the riskiest-looking days in 2026
+were less risky than the 2023–2025 regimes implied.
+
+**Not a volatility increment (H4 fails), not a return predictor (H5
+fails).** M's out-of-sample gain over a HAR volatility forecast is positive
+but insignificant (DM-HLN t = 0.86). Forward returns show no relation that
+survives a correctly sized test (Hodrick 1B t = 0.70). On returns the verdict
+is the same as v1's: thermometer, not crystal ball.
+
+**The new market aggregation did not beat v1 on the primary test (H1b
+fails).** On 2026 five-session changes, breadth-based M was slightly *worse*
+than v1's expanding z-score (−0.035, CI −0.077 to +0.001). The dev-period
+gain of +0.037 did not replicate. On levels, which were not a pre-registered
+test, M is slightly better (0.81 vs 0.79). The two readings are
+statistically indistinguishable; M keeps a fixed yardstick and a direct
+interpretation, and v1's index is still published alongside it
+(`M_legacy`).
+
+**The starting point replicates.** Refit on a different 134-stock universe,
+v1's parameters land inside this study's bootstrap 90% intervals. Run as
+published, v1 gives a 2026 five-session Pearson correlation with VXN of
+0.61, against the 0.62 its author reported.
+
+### What v2 contributes, in order of weight
+
+1. **Evidence that v1's stock model is the right one.** Its emission was
+   tested against censored, zero-inflated and 2- and 4-regime alternatives
+   in a pre-declared walk-forward, and none beat it out of sample.
+2. **A forecast with a meaning.** q is a per-stock, per-day probability that
+   held its calibration on unseen data.
+3. **Stated uncertainty.** Every score carries a 90% parameter band from a
+   time-block bootstrap. A *high-conviction* market reading (M_lo ≥ 2)
+   occurred on one 2026 day (2026-11-05, VXN 38.3). The four M ≥ 2 days all
+   had elevated VXN (mean 35.9, against 25.0 for the year).
+4. **Claims that can be checked.** Hard rules are enforced in code, the
+   comparison was pre-declared, the spec was frozen and hashed before
+   any 2026 data existed locally, there was one logged holdout run, and an
+   independent correctness review came before the freeze.
+
+### Where it stands now
+
+Last scored session, 2026-11-23: **M = 1.80** (90% band 1.65–1.94),
+*stressed*, with 74% of AI stocks expected to be in a stressed or panic
+regime. On 2026-11-20 M reached 2.22 (*acute fear*) as VXN closed at 45.3,
+its highest close of the year.
