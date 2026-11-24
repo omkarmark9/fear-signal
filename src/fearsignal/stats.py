@@ -83,6 +83,24 @@ def corr_ci(a: np.ndarray, b: np.ndarray, method: str = "pearson", block: float 
     return {"r": est, "lo": float(lo), "hi": float(hi), "n": int(len(a))}
 
 
+def corr_diff_ci(a: np.ndarray, b: np.ndarray, v: np.ndarray, method: str = "spearman",
+                 block: float = 20.0, n_boot: int = 2000, level: float = 0.95, seed: int = 0) -> dict:
+    """corr(a, v) - corr(b, v) with a paired stationary-bootstrap interval."""
+    a, b, v = (np.asarray(z, float) for z in (a, b, v))
+    ok = np.isfinite(a) & np.isfinite(b) & np.isfinite(v)
+    a, b, v = a[ok], b[ok], v[ok]
+    f = (lambda u, w: stats.spearmanr(u, w)[0]) if method == "spearman" else (
+        lambda u, w: stats.pearsonr(u, w)[0])
+    est = float(f(a, v) - f(b, v))
+    rng = np.random.default_rng(seed)
+    boots = np.empty(n_boot)
+    for j in range(n_boot):
+        ix = stationary_bootstrap_indices(len(a), block, rng)
+        boots[j] = f(a[ix], v[ix]) - f(b[ix], v[ix])
+    lo, hi = np.quantile(boots, [(1 - level) / 2, (1 + level) / 2])
+    return {"diff": est, "lo": float(lo), "hi": float(hi), "n": int(len(a))}
+
+
 def logistic_calibration(q: np.ndarray, y: np.ndarray, iters: int = 50) -> dict:
     """Fit y ~ Bernoulli(sigmoid(a + b logit q)). Calibrated forecasts give a=0, b=1."""
     q = np.clip(np.asarray(q, float), 1e-9, 1 - 1e-9)

@@ -19,6 +19,7 @@ F = 100 Phi(Z).
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -106,6 +107,8 @@ def robust_cross_section_z(Z: np.ndarray, floor: float = 0.25) -> np.ndarray:
     The MAD is floored so that a day on which almost every stock sits at the
     calm floor does not turn a modest reading into an extreme outlier.
     """
-    med = np.nanmedian(Z, axis=1, keepdims=True)
-    mad = 1.4826 * np.nanmedian(np.abs(Z - med), axis=1, keepdims=True)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)   # days with no eligible stock
+        med = np.nanmedian(Z, axis=1, keepdims=True)
+        mad = 1.4826 * np.nanmedian(np.abs(Z - med), axis=1, keepdims=True)
     return (Z - med) / np.maximum(mad, floor)

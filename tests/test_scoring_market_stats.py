@@ -103,3 +103,16 @@ def test_stationary_bootstrap_indices_cover_range():
     assert idx.min() >= 0 and idx.max() < 1000 and len(idx) == 1000
     runs = np.mean(np.diff(idx) == 1)
     assert 0.9 < runs < 0.99        # mean block length ~20 -> ~95% continuations
+
+
+def test_starting_points_have_vector_parameters_for_every_candidate():
+    rng = np.random.default_rng(8)
+    obs, _ = simulate_halfnormal(mdl.V1_S, mdl.V1_A, [0.2, 0.2, 0.1], T=40, N=3, rng=rng)
+    for spec in mdl.CANDIDATES:
+        for m in mdl.starting_points(spec, obs, n_random=2):
+            e = m.emission
+            assert e.s.shape == (spec.K,) and m.A.shape == (spec.K, spec.K)
+            assert (e.pi is None) == (spec.zero_mode == "none")
+            if e.pi is not None:
+                assert e.pi.shape == (spec.K,)
+            m.emission.log_emissions(obs)   # must not raise

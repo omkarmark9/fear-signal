@@ -170,6 +170,33 @@ def load_holdout_panel(frozen_spec_sha256: str) -> Panel:
         raise HoldoutLocked("frozen spec hash mismatch; holdout stays locked")
     dev = pd.read_parquet(RAW / "dev.parquet")
     hold = pd.read_parquet(RAW / "holdout.parquet")
+    dev = dev[pd.to_datetime(dev["date"]) <= DEV_END]
+    dev = align_adjustment_basis(dev, hold)
     hold = hold[pd.to_datetime(hold["date"]) >= HOLDOUT_START]
-    long = pd.concat([dev[pd.to_datetime(dev["date"]) <= DEV_END], hold], ignore_index=True)
+    long = pd.concat([dev, hold], ignore_index=True)
     return to_panel(long)
+
+
+def align_adjustment_basis(dev: pd.DataFrame, hold: pd.DataFrame, tol: float = 1e-4) -> pd.DataFrame:
+    """Put the dev pull's adjusted closes on the holdout pull's basis.
+
+    The two pulls overlap in December 2025. Raw closes must agree; adjusted
+    closes may differ by one constant per ticker (a dividend paid between the
+    pulls rescales the vendor's whole history). That constant is estimated on
+    the overlap and applied, so the first 2026 return is not contaminated by a
+    change of basis. Any non-constant disagreement is an error.
+    """
+    ov = dev.merge(hold, on=["date", "ticker"], suffixes=("_d", "_h"))
+    if ov.empty:
+        raise ValueError("dev and holdout pulls do not overlap; cannot align adjustment basis")
+    raw_gap = (ov["close_h"] / ov["close_d"] - 1).abs().max()
+    if raw_gap > tol:
+        raise ValueError(f"raw closes disagree between pulls (max rel. gap {raw_gap:.2e})")
+    ratio = ov["adj_close_h"] / ov["adj_close_d"]
+    c = ratio.groupby(ov["ticker"]).median()
+    spread = (ratio / ov["ticker"].map(c) - 1).abs().max()
+    if spread > tol:
+        raise ValueError(f"adjusted closes differ by more than a constant (max {spread:.2e})")
+    dev = dev.copy()
+    dev["adj_close"] = dev["adj_close"] * dev["ticker"].map(c).fillna(1.0)
+    return dev

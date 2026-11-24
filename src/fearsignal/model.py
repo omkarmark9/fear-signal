@@ -64,9 +64,12 @@ def starting_points(spec: StockSpec, obs: Obs, n_random: int = 3, seed: int = 0)
         A = _base_A(spec.K)
         if r:
             A = np.array([rng.dirichlet(200 * row + 0.5) for row in A])
-        pi = None if spec.zero_mode == "none" else np.clip(z + (rng.normal(0, 0.03, spec.K) if r else 0), 0.01, 0.9)
-        if spec.zero_mode == "shared" and pi is not None:
-            pi = np.full(spec.K, pi.mean())
+        pi = None
+        if spec.zero_mode != "none":
+            jitter = rng.normal(0, 0.03, spec.K) if r else np.zeros(spec.K)
+            pi = np.clip(np.full(spec.K, z) + jitter, 0.01, 0.9)
+            if spec.zero_mode == "shared":
+                pi = np.full(spec.K, pi.mean())
         out.append(hmm.HMM(hmm.HalfNormalEmission(np.sort(s), pi, spec.zero_mode, spec.censor), A))
     return out
 

@@ -52,3 +52,19 @@ def test_trade_start_override_applied():
 def test_universe_has_no_duplicates_and_known_size():
     t = universe.tickers()
     assert len(t) == len(set(t)) == 134
+
+
+def test_align_adjustment_basis_rescales_by_overlap_constant():
+    d = _long(pd.bdate_range("2025-12-01", "2025-12-31"), factor=0.98)
+    h = _long(pd.bdate_range("2025-12-01", "2026-01-09"), factor=0.97)
+    out = data.align_adjustment_basis(d, h)
+    np.testing.assert_allclose(out["adj_close"], 100 * 0.97)
+    np.testing.assert_allclose(out["close"], d["close"])
+
+
+def test_align_adjustment_basis_rejects_inconsistent_pulls():
+    d = _long(pd.bdate_range("2025-12-01", "2025-12-31"))
+    h = _long(pd.bdate_range("2025-12-01", "2026-01-09"))
+    h.loc[3, "close"] *= 1.01
+    with pytest.raises(ValueError):
+        data.align_adjustment_basis(d, h)
