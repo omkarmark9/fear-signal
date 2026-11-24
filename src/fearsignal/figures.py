@@ -42,19 +42,21 @@ def market_figure(market_csv: Path, vxn: pd.Series, holdout_start: str, out: Pat
     for ax in (a1, a2):
         _style(ax)
         ax.axvspan(pd.Timestamp(holdout_start), mk.index[-1], color=HOLDOUT_SHADE, zorder=0)
-    a1.fill_between(mk.index, mk["M_lo"], mk["M_hi"], color=BLUE, alpha=0.18, linewidth=0)
-    a1.plot(mk.index, mk["M_legacy"], color=ORANGE, linewidth=1.0, alpha=0.9)
-    a1.plot(mk.index, mk["M"], color=BLUE, linewidth=1.4)
+    band = a1.fill_between(mk.index, mk["M_lo"], mk["M_hi"], color=BLUE, alpha=0.18, linewidth=0)
+    (leg,) = a1.plot(mk.index, mk["M_legacy"], color=ORANGE, linewidth=1.0, alpha=0.9)
+    (m2,) = a1.plot(mk.index, mk["M"], color=BLUE, linewidth=1.4)
     a1.axhline(2.0, color=INK2, linewidth=0.8, linestyle=(0, (4, 3)))
-    a1.text(mk.index[0], 2.08, "alert line M = 2", color=INK2, fontsize=8, va="bottom")
-    last = mk.index[-1]
-    a1.annotate("v2 market fear M (90% parameter band)", (mk.index[int(len(mk) * 0.02)], -2.7),
-                color=BLUE, fontsize=9)
-    a1.annotate("v1 expanding z-score", (mk.index[int(len(mk) * 0.02)], -3.3), color=ORANGE, fontsize=9)
     a1.set_ylabel("standard-normal score", color=INK2, fontsize=9)
-    a1.set_ylim(-3.6, max(5.0, float(np.nanmax(mk[["M", "M_legacy", "M_hi"]].to_numpy())) + 0.3))
-    a1.set_title("AI-stock market fear, causal daily readings", loc="left", color=INK, fontsize=12)
-    a1.text(pd.Timestamp(holdout_start), a1.get_ylim()[1], "  2026 holdout (frozen spec, run once)",
+    top = max(5.0, float(np.nanmax(mk[["M", "M_legacy", "M_hi"]].to_numpy())) + 0.3)
+    a1.set_ylim(-3.6, top)
+    a1.annotate("M = 2", xy=(1.005, 2.0), xycoords=("axes fraction", "data"), color=INK2,
+                fontsize=8, va="center", ha="left", annotation_clip=False)
+    a1.set_title("AI-stock market fear, causal daily readings", loc="left", color=INK, fontsize=12,
+                 pad=26)
+    a1.legend([m2, band, leg], ["v2 market fear M", "90% parameter band", "v1 expanding z-score"],
+              loc="lower left", bbox_to_anchor=(0.0, 1.0), ncol=3, frameon=False, fontsize=9,
+              labelcolor=INK, borderaxespad=0.2, handlelength=1.6)
+    a1.text(pd.Timestamp(holdout_start), top, "  2026 holdout (frozen spec, run once)",
             color=INK2, fontsize=8, va="top")
     a2.plot(v.index, v.to_numpy(), color=INK2, linewidth=1.1)
     a2.set_ylabel("VXN (validation only)", color=INK2, fontsize=9)
@@ -85,12 +87,12 @@ def reliability_figure(results_json: Path, out: Path) -> None:
             if color == BLUE:
                 ax.annotate(f"{ni:,}", (fi, oi), textcoords="offset points", xytext=(6, -10),
                             fontsize=7, color=INK2)
-    lim = 0.3
-    ax.plot([1e-3, lim], [1e-3, lim], color=INK2, linewidth=0.8, linestyle=(0, (4, 3)))
+    lo, hi = 0.008, 0.25
+    ax.plot([lo, hi], [lo, hi], color=INK2, linewidth=0.8, linestyle=(0, (4, 3)))
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlim(1e-3, lim)
-    ax.set_ylim(1e-3, lim)
+    ax.set_xlim(lo, hi)
+    ax.set_ylim(lo, hi)
     ax.set_xlabel("forecast P(next low >= 3 sigma below close)", color=INK2, fontsize=9)
     ax.set_ylabel("observed frequency, 2026", color=INK2, fontsize=9)
     ax.set_title("Tail forecast calibration, 2026 holdout", loc="left", color=INK, fontsize=11)

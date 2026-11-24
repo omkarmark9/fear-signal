@@ -231,7 +231,8 @@ def holdout(presented_sha256: str, rerun_reason: str | None = None) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     (out / "holdout_results.json").write_text(json.dumps(res, indent=2, default=float) + "\n")
     mk.round(4).to_csv(out / "market_fear.csv")
-    st.round(4).to_csv(out / "stock_fear.csv.gz", index=False, compression="gzip")
+    num = st.select_dtypes("number").columns
+    st.assign(**st[num].round(4)).to_csv(out / "stock_fear.csv.gz", index=False, compression="gzip")
     stamp = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M UTC")
     with open(log, "a") as fh:
         if fh.tell() == 0:
