@@ -6,6 +6,7 @@
     fearsignal dev-reference                pre-registered metrics, in-sample on dev
     fearsignal download-holdout             bars and VXN through the last full session
     fearsignal holdout --sha256 HASH        the single frozen run on 2026 (refuses a second run)
+    fearsignal figures                      docs/figures from the holdout outputs
     fearsignal latest [--top N]             latest market and stock readings
 """
 
@@ -41,6 +42,7 @@ def main(argv=None) -> None:
     hr.add_argument("--sha256", required=True)
     hr.add_argument("--rerun-reason", default=None,
                     help="required to run the holdout again; recorded in outputs/holdout/RUNLOG.md")
+    sub.add_parser("figures")
     lt = sub.add_parser("latest")
     lt.add_argument("--top", type=int, default=15)
     a = ap.parse_args(argv)
@@ -66,6 +68,16 @@ def main(argv=None) -> None:
         _fred(a.end_exclusive, "vxn_full.csv")
     elif a.cmd == "holdout":
         pipeline.holdout(a.sha256, rerun_reason=a.rerun_reason)
+    elif a.cmd == "figures":
+        from . import figures
+        fig_dir = pipeline.ROOT / "docs" / "figures"
+        fig_dir.mkdir(parents=True, exist_ok=True)
+        spec = frozen.load()
+        vxn = evaluate.load_vxn(data.RAW / "vxn_full.csv", dev_only=False)
+        figures.market_figure(pipeline.OUT / "holdout" / "market_fear.csv", vxn,
+                              spec["holdout_start"], fig_dir / "market_fear.png")
+        figures.reliability_figure(pipeline.OUT / "holdout" / "holdout_results.json",
+                                   fig_dir / "tail_reliability.png")
     elif a.cmd == "latest":
         import pandas as pd
         mk = pd.read_csv(pipeline.OUT / "holdout" / "market_fear.csv", index_col=0)
