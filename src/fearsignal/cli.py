@@ -7,6 +7,11 @@
     fearsignal download-holdout             bars and VXN through the last full session
     fearsignal holdout --sha256 HASH        the single frozen run on 2026 (refuses a second run)
     fearsignal figures                      docs/figures from the holdout outputs
+    fearsignal posthoc-2026                 labelled post-hoc diagnostic of the v3 market scale
+    fearsignal freeze-v3                    re-estimate v3 on 2023-01-03..2026-11-23
+    fearsignal v3-reference                 in-sample v3 metrics on its estimation period
+    fearsignal download-prospective --end-exclusive D   bars + VXN after 2026-11-23
+    fearsignal prospective --sha256 HASH    the single pre-registered v3 read (400 sessions)
     fearsignal latest [--top N]             latest market and stock readings
 """
 
@@ -43,6 +48,15 @@ def main(argv=None) -> None:
     hr.add_argument("--rerun-reason", default=None,
                     help="required to run the holdout again; recorded in outputs/holdout/RUNLOG.md")
     sub.add_parser("figures")
+    sub.add_parser("posthoc-2026")
+    fv = sub.add_parser("freeze-v3")
+    fv.add_argument("--n-boot", type=int, default=200)
+    sub.add_parser("v3-reference")
+    dp = sub.add_parser("download-prospective")
+    dp.add_argument("--end-exclusive", required=True)
+    pr = sub.add_parser("prospective")
+    pr.add_argument("--sha256", required=True)
+    pr.add_argument("--rerun-reason", default=None)
     lt = sub.add_parser("latest")
     lt.add_argument("--top", type=int, default=15)
     a = ap.parse_args(argv)
@@ -78,6 +92,25 @@ def main(argv=None) -> None:
                               spec["holdout_start"], fig_dir / "market_fear.png")
         figures.reliability_figure(pipeline.OUT / "holdout" / "holdout_results.json",
                                    fig_dir / "tail_reliability.png")
+    elif a.cmd == "posthoc-2026":
+        (pipeline.OUT / "v3").mkdir(parents=True, exist_ok=True)
+        res = pipeline.posthoc_2026_market_scale()
+        (pipeline.OUT / "v3" / "posthoc_2026_market_scale.json").write_text(
+            json.dumps(res, indent=2, default=float) + "\n")
+    elif a.cmd == "freeze-v3":
+        pipeline.freeze_v3(n_boot=a.n_boot)
+        print("frozen v3 sha256:", frozen.spec_hash(frozen.FROZEN_V3_PATH))
+    elif a.cmd == "v3-reference":
+        res = pipeline.v3_reference(json.loads(frozen.FROZEN_V3_PATH.read_text()))
+        (pipeline.OUT / "v3" / "estimation_reference.json").write_text(
+            json.dumps(res, indent=2, default=float) + "\n")
+    elif a.cmd == "download-prospective":
+        frozen.committed_spec_hash(frozen.FROZEN_V3_PATH)   # nothing after 2026-11-23 before v3 is committed
+        # overlap November 2026 so the loader can align the adjustment basis
+        data.download("prospective", "2026-11-02", a.end_exclusive)
+        _fred(a.end_exclusive, "vxn_prospective.csv")
+    elif a.cmd == "prospective":
+        pipeline.prospective(a.sha256, rerun_reason=a.rerun_reason)
     elif a.cmd == "latest":
         import pandas as pd
         mk = pd.read_csv(pipeline.OUT / "holdout" / "market_fear.csv", index_col=0)

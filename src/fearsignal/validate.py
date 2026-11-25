@@ -170,6 +170,46 @@ def har_oos(sig: Signal, R: np.ndarray, mask: np.ndarray, fitted: dict) -> dict:
             "mse_gain_mean": dm["mean"], "dm_hln_t": dm["t"], "dm_hln_p_one_sided": dm["p_one_sided"]}
 
 
+def har_recursive(sig: Signal, R: np.ndarray, mask: np.ndarray, start: int | None = None) -> dict:
+    """H4' (v3 convention): HAR vs HAR+M re-estimated daily on an expanding window.
+
+    The forecast for day t uses coefficients fitted on rows s <= t - 5 only:
+    the target at s needs returns through s + 5, so this is the latest row
+    whose target is known at the close of t. Nested models under a recursive
+    scheme make a Diebold-Mariano test undersized, so the primary statistic is
+    Clark-West (2007); DM-HLN on the raw MSE gain is reported beside it.
+    """
+    y, X0 = har_design(R)
+    _, X1 = har_design(R, sig.M)
+    good = np.isfinite(y) & np.all(np.isfinite(X1), axis=1)
+    first = int(np.argmax(good)) if start is None else start
+    f0 = np.full(len(y), np.nan)
+    f1 = np.full(len(y), np.nan)
+    for t in np.flatnonzero(mask & good):
+        rows = np.flatnonzero(good[: t - 4])            # s <= t - 5
+        rows = rows[rows >= first]
+        if len(rows) < 60:
+            continue
+        b0 = np.linalg.lstsq(X0[rows], y[rows], rcond=None)[0]
+        b1 = np.linalg.lstsq(X1[rows], y[rows], rcond=None)[0]
+        f0[t], f1[t] = X0[t] @ b0, X1[t] @ b1
+    ok = np.isfinite(f0) & np.isfinite(f1)
+    e0, e1 = y[ok] - f0[ok], y[ok] - f1[ok]
+    # feasible benchmark: the expanding-window mean of y known at t (rows s <= t - 5)
+    fm = np.array([np.nanmean(y[first: t - 4][good[first: t - 4]]) for t in np.flatnonzero(ok)])
+    sst_feasible = np.sum((y[ok] - fm) ** 2)
+    sst_oracle = np.sum((y[ok] - y[ok].mean()) ** 2)
+    cw = stats.clark_west(y[ok], f0[ok], f1[ok], horizon=5)
+    dm = stats.diebold_mariano(e0**2 - e1**2, horizon=5)
+    return {"n": int(ok.sum()),
+            "oos_r2_har_feasible": float(1 - e0 @ e0 / sst_feasible),
+            "oos_r2_har_M_feasible": float(1 - e1 @ e1 / sst_feasible),
+            "oos_r2_har_oracle": float(1 - e0 @ e0 / sst_oracle),
+            "oos_r2_har_M_oracle": float(1 - e1 @ e1 / sst_oracle),
+            "clark_west_t": cw["t"], "clark_west_p_one_sided": cw["p_one_sided"],
+            "dm_hln_t": dm["t"], "dm_hln_p_one_sided": dm["p_one_sided"]}
+
+
 def forward_returns(sig: Signal, R: np.ndarray, mask: np.ndarray, horizon: int = 20) -> dict:
     """H5: does market fear predict the basket's forward return? (secondary)
 
@@ -193,9 +233,11 @@ def forward_returns(sig: Signal, R: np.ndarray, mask: np.ndarray, horizon: int =
 
 def alerts(sig: Signal, M_lo: np.ndarray | None, vxn: pd.Series, dates: pd.DatetimeIndex,
            mask: np.ndarray, vxn_elevated: float, threshold: float = 2.0) -> dict:
-    """Alert days vs VXN: precision of M >= threshold and of the conviction rule."""
+    """Alert days vs VXN: precision of M_pct >= threshold and of the conviction
+    rule (``M_lo`` = lower band of the percentile score M_pct). For v2,
+    M_pct is M."""
     v = vxn.reindex(dates).to_numpy()
-    ok = mask & np.isfinite(v) & np.isfinite(sig.M)
+    ok = mask & np.isfinite(v) & np.isfinite(sig.M_pct)
     elev = v >= vxn_elevated
 
     def summarise(flag):
@@ -207,7 +249,7 @@ def alerts(sig: Signal, M_lo: np.ndarray | None, vxn: pd.Series, dates: pd.Datet
     out = {"vxn_elevated_threshold": vxn_elevated,
            "base_rate_vxn_elevated": float(elev[ok].mean()),
            "mean_vxn_all": float(v[ok].mean()),
-           f"M_ge_{threshold}": summarise(sig.M >= threshold)}
+           f"M_ge_{threshold}": summarise(sig.M_pct >= threshold)}
     if M_lo is not None:
         out[f"conviction_M_lo_ge_{threshold}"] = summarise(np.nan_to_num(M_lo, nan=-9) >= threshold)
     return out

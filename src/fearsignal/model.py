@@ -133,12 +133,22 @@ class Signal:
     q_next: np.ndarray       # P(x_{t+1} >= 3 | x_<=t), forecast made at t
     breadth: np.ndarray      # expected share of stocks not calm
     breadth_L: np.ndarray    # logit breadth
-    M: np.ndarray            # market fear, standard-normal scale (v2)
+    M: np.ndarray            # headline market fear (v2: = M_pct; v3: linear in logit breadth)
     M_legacy: np.ndarray     # v1 expanding z-score of mean Z
+    M_pct: np.ndarray        # calibration-percentile score Phi^-1(F_cal(logit breadth)); drives bands and alerts
 
 
 def compute_signal(model: hmm.HMM, obs: Obs, z_map: scoring.QuantileMap | None,
-                   m_map: scoring.QuantileMap | None, train_zero_rate: float) -> Signal:
+                   m_map: scoring.QuantileMap | None, train_zero_rate: float,
+                   m_linear: tuple[float, float] | None = None) -> Signal:
+    """The full signal.
+
+    ``m_linear = (mu, sd)`` selects v3's market scale: M = (logit breadth - mu) / sd,
+    a fixed linear yardstick on the object the walk-forward selected. Without
+    it M is v2's percentile score. Either way ``M_pct`` (the percentile score)
+    is returned, and bands and alerts are defined on it, so a v3 alert
+    "M_pct >= 2" is the same event as v2's "M >= 2".
+    """
     fr = model.filter(obs)
     el = obs.eligible
     alpha = np.where(el[:, :, None], fr.alpha, np.nan)
@@ -150,9 +160,11 @@ def compute_signal(model: hmm.HMM, obs: Obs, z_map: scoring.QuantileMap | None,
     e = as_scoring_model(model, train_zero_rate).emission
     q_next = np.where(el, (np.nan_to_num(alpha) @ model.A) @ e.tail_prob(TAIL_THRESHOLD), np.nan)
     B = market.breadth(fr.alpha, el)
-    BL = scoring.logit(B)
-    M = m_map(BL) if m_map is not None else np.full_like(BL, np.nan)
-    return Signal(alpha, sev, L, Z, scoring.fear_score(Z), I, q_next, B, BL, M, market.legacy_M(Z))
+    BL = np.where(np.isfinite(B), scoring.logit(B), np.nan)
+    M_pct = m_map(BL) if m_map is not None else np.full_like(BL, np.nan)
+    M = (BL - m_linear[0]) / m_linear[1] if m_linear is not None else M_pct
+    return Signal(alpha, sev, L, Z, scoring.fear_score(Z), I, q_next, B, BL, M,
+                  market.legacy_M(Z), M_pct)
 
 
 def fit_maps(model: hmm.HMM, obs: Obs) -> tuple[scoring.QuantileMap, scoring.QuantileMap]:

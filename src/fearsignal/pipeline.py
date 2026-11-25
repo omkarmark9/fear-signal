@@ -13,13 +13,13 @@ from __future__ import annotations
 
 import json
 import warnings
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from . import bootstrap, data, evaluate, features, frozen, hmm, model as mdl, scoring, validate
+from . import bootstrap, data, evaluate, features, frozen, hmm, model as mdl, scoring, stats, validate
 from .config import DEV_END, ERA_START, HOLDOUT_START, STATE_NAMES
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -115,43 +115,82 @@ def _calibration_values(m: hmm.HMM, obs) -> tuple[np.ndarray, np.ndarray]:
 
 # ----------------------------------------------------------------------------- apply frozen spec
 
-def apply(spec_doc: dict, feat: features.Features):
+@dataclass
+class Applied:
+    """A frozen spec applied to data: the signal and its parameter bands.
+
+    ``M_band`` is the band of the headline M; ``Mpct_band`` the band of the
+    percentile score M_pct that alerts and conviction use. For a v2 spec the
+    two are the same object.
+    """
+
+    sig: mdl.Signal
+    M_band: np.ndarray
+    Z_band: np.ndarray
+    Mpct_band: np.ndarray
+
+    def __iter__(self):  # (sig, M_band, Z_band), as v2 callers unpacked it
+        return iter((self.sig, self.M_band, self.Z_band))
+
+
+def _linear(d: dict | None) -> tuple[float, float] | None:
+    return None if d is None else (float(d["mu"]), float(d["sd"]))
+
+
+def apply(spec_doc: dict, feat: features.Features) -> Applied:
     """Signal and replicate bands from a frozen spec (no fitting of any kind)."""
     obs = feat.obs
     point = model_from_dict(spec_doc["stock_model"])
     z_map = scoring.QuantileMap.from_dict(spec_doc["z_map"])
     m_map = scoring.QuantileMap.from_dict(spec_doc["m_map"])
     z0 = spec_doc["dev_zero_rate"]
-    sig = mdl.compute_signal(point, obs, z_map, m_map, z0)
+    sig = mdl.compute_signal(point, obs, z_map, m_map, z0, _linear(spec_doc.get("market_scale")))
     reps = spec_doc["bootstrap"]["replicates"]
     M_reps = np.empty((len(reps), len(obs.dates)))
+    P_reps = np.empty((len(reps), len(obs.dates)))
     Z_reps = np.empty((len(reps),) + obs.x.shape, dtype=np.float32)
     for j, r in enumerate(reps):
         rs = mdl.compute_signal(model_from_dict(r["model"]), obs,
                                 scoring.QuantileMap.from_dict(r["z_map"]),
-                                scoring.QuantileMap.from_dict(r["m_map"]), z0)
+                                scoring.QuantileMap.from_dict(r["m_map"]), z0,
+                                _linear(r.get("market_scale")))
         M_reps[j] = rs.M
+        P_reps[j] = rs.M_pct
         Z_reps[j] = rs.Z
     lvl = spec_doc["bootstrap"]["band_level"]
     qs = [(1 - lvl) / 2, 0.5, (1 + lvl) / 2]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)   # ineligible cells are all-NaN
         M_band = np.nanquantile(M_reps, qs, axis=0)
+        P_band = np.nanquantile(P_reps, qs, axis=0)
         Z_band = np.nanquantile(Z_reps, qs, axis=0)
-    return sig, M_band, Z_band
+    return Applied(sig, M_band, Z_band, P_band)
 
 
-def signal_frames(sig: mdl.Signal, M_band, Z_band, obs, state_names) -> tuple[pd.DataFrame, pd.DataFrame]:
+def signal_frames(sig: mdl.Signal, M_band, Z_band, obs, state_names,
+                  Mpct_band=None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Market and stock output tables. With ``Mpct_band`` (v3) the market table
+    carries the linear headline M and the percentile score separately."""
     dates = obs.dates
-    mk = pd.DataFrame({
-        "M": sig.M, "M_lo": M_band[0], "M_hi": M_band[2], "F_M": scoring.fear_score(sig.M),
-        "breadth": sig.breadth, "M_legacy": sig.M_legacy,
-        "band": scoring.band(np.nan_to_num(sig.M, nan=-9)),
-        "n_stocks": obs.eligible.sum(axis=1),
-    }, index=dates)
-    mk.loc[~np.isfinite(sig.M), "band"] = ""
+    if Mpct_band is None:   # v2 layout, unchanged
+        mk = pd.DataFrame({
+            "M": sig.M, "M_lo": M_band[0], "M_hi": M_band[2], "F_M": scoring.fear_score(sig.M),
+            "breadth": sig.breadth, "M_legacy": sig.M_legacy,
+            "band": scoring.band(np.nan_to_num(sig.M, nan=-9)),
+            "n_stocks": obs.eligible.sum(axis=1),
+        }, index=dates)
+    else:
+        mk = pd.DataFrame({
+            "M": sig.M, "M_lo": M_band[0], "M_hi": M_band[2],
+            "M_pct": sig.M_pct, "M_pct_lo": Mpct_band[0], "M_pct_hi": Mpct_band[2],
+            "F_M": scoring.fear_score(sig.M_pct),
+            "band": scoring.band(np.nan_to_num(sig.M_pct, nan=-9)),
+            "high_conviction": np.nan_to_num(Mpct_band[0], nan=-9) >= 2.0,
+            "breadth": sig.breadth, "M_legacy": sig.M_legacy,
+            "n_stocks": obs.eligible.sum(axis=1),
+        }, index=dates)
+    mk.loc[~np.isfinite(sig.M_pct), "band"] = ""
     mk.index.name = "date"
-    T, N = obs.x.shape
     tt, nn = np.nonzero(obs.eligible)
     st = pd.DataFrame({
         "date": dates[tt], "ticker": np.asarray(obs.tickers)[nn],
@@ -170,11 +209,14 @@ def dev_reference(spec_doc: dict) -> dict:
     return _metrics(spec_doc, feat, mask_from=None, vxn=evaluate.load_vxn())
 
 
-def _metrics(spec_doc, feat, mask_from, vxn, applied=None) -> dict:
+def _metrics(spec_doc, feat, mask_from, vxn, applied=None, mask_to=None) -> dict:
     obs = feat.obs
-    sig, M_band, _ = applied if applied is not None else apply(spec_doc, feat)
+    applied = applied if applied is not None else apply(spec_doc, feat)
+    sig = applied.sig
     el_days = obs.eligible.any(axis=1)
     mask = el_days if mask_from is None else el_days & (obs.dates >= pd.Timestamp(mask_from))
+    if mask_to is not None:
+        mask &= obs.dates <= pd.Timestamp(mask_to)
     R = validate.basket_returns(feat)
     q_abs = evaluate.ewma_tail_forecast(obs, spec_doc["dev_zero_rate"], power=1)
     q_sq = evaluate.ewma_tail_forecast(obs, spec_doc["dev_zero_rate"], power=2)
@@ -195,7 +237,7 @@ def _metrics(spec_doc, feat, mask_from, vxn, applied=None) -> dict:
         "har_oos": validate.har_oos(sig, R, mask, spec_doc["har"]),
         "forward_returns_20d": validate.forward_returns(sig, R, mask, 20),
         "forward_returns_5d": validate.forward_returns(sig, R, mask, 5),
-        "alerts": validate.alerts(sig, M_band[0], vxn, obs.dates, mask,
+        "alerts": validate.alerts(sig, applied.Mpct_band[0], vxn, obs.dates, mask,
                                   spec_doc["vxn_elevated_threshold"], spec_doc["alert_threshold_M"]),
     }
 
@@ -239,4 +281,194 @@ def holdout(presented_sha256: str, rerun_reason: str | None = None) -> dict:
             fh.write("# Holdout run log\n\n| when | frozen spec sha256 | last session | reason |\n|---|---|---|---|\n")
         fh.write(f"| {stamp} | `{presented_sha256[:16]}…` | {res['last_day']} | "
                  f"{rerun_reason or 'first and only planned run'} |\n")
+    return res
+
+
+# ============================================================================= v3
+# docs/V3.md: the 2026 holdout is spent. v3 changes one thing selected on dev
+# (the market scale), is re-estimated on everything through 2026-11-23, and is
+# judged once, prospectively, at a fixed sample size.
+
+V3_CHANGES = [
+    {"id": "v3-1", "layer": "market",
+     "change": "headline M = (logit breadth - mu) / sd on a fixed linear yardstick, replacing "
+               "v2's percentile score Phi^-1(F_dev(logit breadth)); the percentile score is kept "
+               "as M_pct and still defines bands, alerts and conviction",
+     "evidence": "dev walk-forward OOS, 363 within-fold 5-session changes: v2's shipped percentile "
+                 "score minus the dev-selected logit breadth = -0.043 Spearman with VXN (s.e. 0.015; "
+                 "all three folds negative; calibrated SPA family gate p < 0.0034)"},
+    {"id": "v3-2", "layer": "evaluation",
+     "change": "H4' uses HAR and HAR+M re-estimated daily on an expanding window (rows s <= t-5), "
+               "tested with Clark-West; the frozen-coefficient design is reported as secondary",
+     "evidence": "standard recursive practice and the correct test for nested models; dev evidence "
+                 "for a gain in the deployed configuration is null (folds B+C t 1.25)"},
+]
+
+
+def _market_scale(BL: np.ndarray) -> dict:
+    v = BL[np.isfinite(BL)]
+    return {"mu": float(v.mean()), "sd": float(v.std(ddof=1)), "n_days": int(len(v))}
+
+
+def freeze_v3(n_boot: int = 200, seed: int = 20261123, path: Path = frozen.FROZEN_V3_PATH) -> dict:
+    """Re-estimate the selected v3 specification on 2023-01-03 .. 2026-11-23.
+
+    Estimation only: every choice was made on dev (docs/V3.md), so using 2026
+    here fits parameters, it does not select anything.
+    """
+    from .config import PROSPECTIVE_SESSIONS, PROSPECTIVE_START, V3_ESTIMATION_END
+
+    v2 = frozen.load()
+    panel = data.load_v3_estimation_panel()
+    feat = features.compute(panel)
+    obs = feat.obs
+    spec = _spec("S1_v1_refit")
+    point = mdl.fit_stock_model(spec, obs, n_random=4, seed=seed, max_iter=6000, tol=1e-11)
+    if not point.converged:
+        raise RuntimeError("point estimate did not converge; refusing to freeze")
+    z_map, m_map = mdl.fit_maps(point, obs)
+    z0 = mdl.zero_rate(obs)
+    L, BL = _calibration_values(point, obs)
+    scale = _market_scale(BL)
+    reps = bootstrap.replicate_fits(point, obs, n_boot=n_boot, seed=seed, max_iter=3000, tol=1e-9)
+    rep_entries = []
+    for r in reps:
+        Lr, BLr = _calibration_values(r, obs)
+        rep_entries.append({"model": model_to_dict(r, 6),
+                            "z_map": scoring.QuantileMap.fit(Lr, dz=0.05).to_dict(4),
+                            "m_map": scoring.QuantileMap.fit(BLr, dz=0.05).to_dict(4),
+                            "market_scale": _market_scale(BLr)})
+    sig = mdl.compute_signal(point, obs, z_map, m_map, z0, (scale["mu"], scale["sd"]))
+    y_tail = mdl.tail_event(obs)
+    vxn = evaluate.load_vxn(data.RAW / "vxn_full.csv", dev_only=False)
+    vxn = vxn[vxn.index <= V3_ESTIMATION_END]
+    el_days = obs.eligible.any(axis=1)
+    R = validate.basket_returns(feat)
+    doc = {
+        "version": "3.0.0",
+        "era_start": str(ERA_START.date()),
+        "estimation_end": str(V3_ESTIMATION_END.date()),
+        "prospective_start": str(PROSPECTIVE_START.date()),
+        "prospective_sessions": PROSPECTIVE_SESSIONS,
+        "comparators": {"v2_frozen_sha256": frozen.committed_spec_hash(), "v1": "published parameters"},
+        "changes_from_v2": V3_CHANGES,
+        "data_manifest_sha256": {
+            n: json.loads((ROOT / "data" / f"manifest_{n}.json").read_text())["sha256_csv_6dp"]
+            for n in ("dev", "holdout")},
+        "universe": list(panel.tickers),
+        "stock_spec": asdict(spec),
+        "stock_model": model_to_dict(point),
+        "stock_model_fit": {"loglik": point.loglik, "n_obs": point.n_obs,
+                            "iters": len(point.history), "converged": point.converged},
+        "state_names": list(STATE_NAMES),
+        "dev_zero_rate": z0,
+        "dev_tail_climatology": float(np.nanmean(y_tail)),
+        "z_map": z_map.to_dict(),
+        "m_map": m_map.to_dict(),
+        "market_scale": scale,
+        "v1_reference_maps": v2["v1_reference_maps"],
+        "bootstrap": {"block": bootstrap.BLOCK, "n_boot": n_boot, "seed": seed,
+                      "band_level": BAND_LEVEL,
+                      "n_converged": int(sum(r.converged for r in reps)),
+                      "parameter_table": bootstrap.parameter_table(point, reps),
+                      "replicates": rep_entries},
+        "har": validate.har_fit(sig, R, el_days),
+        "vxn_elevated_threshold": float(np.quantile(vxn.reindex(obs.dates[el_days]).dropna(), 0.80)),
+        "alert_threshold_M": 2.0,
+    }
+    path.write_text(json.dumps(doc, indent=1, default=float) + "\n")
+    return doc
+
+
+def posthoc_2026_market_scale() -> dict:
+    """Labelled post-hoc diagnostic of change v3-1 on the spent 2026 holdout.
+
+    Uses v2's frozen parameters and maps with the linear yardstick estimated on
+    v2's dev period, so the only difference from v2 is the scale itself.
+    Not out-of-sample evidence for v3: the 2026 result was known when v3 was built.
+    """
+    v2 = frozen.load()
+    dev_feat = features.compute(data.load_dev_panel())
+    point = model_from_dict(v2["stock_model"])
+    L, BL = _calibration_values(point, dev_feat.obs)
+    scale = _market_scale(BL)
+    panel = data.load_holdout_panel(frozen.committed_spec_hash())
+    feat = features.compute(panel)
+    sig_lin = mdl.compute_signal(point, feat.obs, scoring.QuantileMap.from_dict(v2["z_map"]),
+                                 scoring.QuantileMap.from_dict(v2["m_map"]), v2["dev_zero_rate"],
+                                 (scale["mu"], scale["sd"]))
+    vm = v2["v1_reference_maps"]
+    v1 = mdl.compute_signal(_v1_model(), feat.obs, scoring.QuantileMap.from_dict(vm["z_map"]),
+                            scoring.QuantileMap.from_dict(vm["m_map"]), v2["dev_zero_rate"])
+    vxn = evaluate.load_vxn(data.RAW / "vxn_full.csv", dev_only=False)
+    mask = feat.obs.eligible.any(axis=1) & (feat.obs.dates >= HOLDOUT_START)
+    v = vxn.reindex(feat.obs.dates).to_numpy()
+    d = {k: validate._d5(s, v, feat.obs.dates, mask)
+         for k, s in (("v3_linear", sig_lin.M), ("v2_percentile", sig_lin.M_pct), ("v1", v1.M_legacy))}
+    out = {"label": "2026, spent holdout, post-hoc diagnostic, not out-of-sample evidence",
+           "dev_market_scale": scale}
+    for k, df in d.items():
+        out[k] = {"d5_spearman": stats.corr_ci(df.s, df.v, "spearman"),
+                  "d5_pearson": stats.corr_ci(df.s, df.v, "pearson")}
+    j = d["v3_linear"].index.intersection(d["v1"].index)
+    out["v3_linear_minus_v1"] = stats.corr_diff_ci(d["v3_linear"].loc[j, "s"], d["v1"].loc[j, "s"],
+                                                   d["v3_linear"].loc[j, "v"])
+    out["v3_linear_minus_v2_percentile"] = stats.corr_diff_ci(
+        d["v3_linear"].loc[j, "s"], d["v2_percentile"].loc[j, "s"], d["v3_linear"].loc[j, "v"])
+    out["alert_days_identical"] = bool(np.array_equal(
+        np.nan_to_num(sig_lin.M_pct, nan=-9) >= 2,
+        np.nan_to_num(apply(v2, feat).sig.M, nan=-9) >= 2))
+    return out
+
+
+def v3_reference(spec3: dict) -> dict:
+    """In-sample reference metrics for v3 on its estimation period (not evidence)."""
+    feat = features.compute(data.load_v3_estimation_panel())
+    vxn = evaluate.load_vxn(data.RAW / "vxn_full.csv", dev_only=False)
+    applied = apply(spec3, feat)
+    res = _metrics(spec3, feat, mask_from=None, vxn=vxn, applied=applied)
+    R = validate.basket_returns(feat)
+    res["har_recursive"] = validate.har_recursive(applied.sig, R, feat.obs.eligible.any(axis=1))
+    return res
+
+
+def prospective(presented_sha256: str, rerun_reason: str | None = None) -> dict:
+    """The single pre-registered read of v3 (docs/PREREGISTRATION_v3.md).
+
+    Scores the first PROSPECTIVE_SESSIONS sessions after 2026-11-23 for v3,
+    and re-reads v2 (frozen) and v1 (published) on the same sample.
+    """
+    from .config import PROSPECTIVE_START
+
+    out = OUT / "prospective"
+    if (out / "prospective_results.json").exists() and not rerun_reason:
+        raise RuntimeError("the prospective read has already been made; pass a reason to repeat it")
+    spec3 = json.loads(frozen.FROZEN_V3_PATH.read_text())
+    panel = data.load_prospective_panel(presented_sha256)
+    feat = features.compute(panel)
+    vxn = evaluate.load_vxn(data.RAW / "vxn_prospective.csv", dev_only=False)
+    a3 = apply(spec3, feat)
+    res = {"v3": _metrics(spec3, feat, mask_from=PROSPECTIVE_START, vxn=vxn, applied=a3)}
+    a2 = apply(frozen.load(), feat)
+    res["v2_frozen"] = _metrics(frozen.load(), feat, mask_from=PROSPECTIVE_START, vxn=vxn, applied=a2)
+    mask = feat.obs.eligible.any(axis=1) & (feat.obs.dates >= PROSPECTIVE_START)
+    v = vxn.reindex(feat.obs.dates).to_numpy()
+    a = validate._d5(a3.sig.M, v, feat.obs.dates, mask)
+    b = validate._d5(a2.sig.M, v, feat.obs.dates, mask)
+    j = a.index.intersection(b.index)
+    res["H1b_v3_minus_v2"] = stats.corr_diff_ci(a.loc[j, "s"], b.loc[j, "s"], a.loc[j, "v"])
+    res["H4_recursive"] = validate.har_recursive(a3.sig, validate.basket_returns(feat), mask)
+    res["frozen_v3_sha256"] = presented_sha256
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "prospective_results.json").write_text(json.dumps(res, indent=2, default=float) + "\n")
+    mk, st = signal_frames(a3.sig, a3.M_band, a3.Z_band, feat.obs, spec3["state_names"], a3.Mpct_band)
+    mk.round(4).to_csv(out / "market_fear_v3.csv")
+    num = st.select_dtypes("number").columns
+    st.assign(**st[num].round(4)).to_csv(out / "stock_fear_v3.csv.gz", index=False, compression="gzip")
+    stamp = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M UTC")
+    log = out / "RUNLOG.md"
+    with open(log, "a") as fh:
+        if fh.tell() == 0:
+            fh.write("# Prospective read log\n\n| when | frozen v3 sha256 | reason |\n|---|---|---|\n")
+        fh.write(f"| {stamp} | `{presented_sha256[:16]}…` | {rerun_reason or 'the single pre-registered read'} |\n")
     return res

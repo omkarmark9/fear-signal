@@ -27,7 +27,8 @@ import numpy as np
 import pandas as pd
 
 from . import universe
-from .config import DEV_END, ERA_START, HOLDOUT_START, HoldoutLocked, assert_dev, assert_era
+from .config import (DEV_END, ERA_START, HOLDOUT_START, PROSPECTIVE_SESSIONS, PROSPECTIVE_START,
+                     V3_ESTIMATION_END, HoldoutLocked, assert_dev, assert_era)
 
 ROOT = Path(__file__).resolve().parents[2]
 RAW = ROOT / "data" / "raw"
@@ -207,3 +208,51 @@ def align_adjustment_basis(dev: pd.DataFrame, hold: pd.DataFrame, tol: float = 1
     dev = dev.copy()
     dev["adj_close"] = dev["adj_close"] * dev["ticker"].map(c).fillna(1.0)
     return dev
+
+
+def load_v3_estimation_panel() -> Panel:
+    """2023-01-03 .. 2026-11-23: everything v3 may be estimated on.
+
+    The 2026 part was opened by v2's single holdout run (it requires v2's
+    committed frozen spec to read) and is now estimation data, never
+    selection data (docs/V3.md).
+    """
+    from .frozen import committed_spec_hash
+
+    panel = load_holdout_panel(committed_spec_hash()).slice(end=V3_ESTIMATION_END)
+    if panel.dates.max() != V3_ESTIMATION_END:
+        raise ValueError(f"estimation panel ends {panel.dates.max().date()}, expected {V3_ESTIMATION_END.date()}")
+    return panel
+
+
+def load_prospective_panel(frozen_v3_sha256: str) -> Panel:
+    """Full panel through the first PROSPECTIVE_SESSIONS sessions after 2026-11-23.
+
+    Requires the committed, unmodified config/frozen_v3.json with the presented
+    hash, and refuses to return anything until that many sessions exist: the
+    pre-registered design is a single read at a fixed sample size.
+    """
+    from .frozen import FROZEN_V3_PATH, committed_spec_hash
+
+    if frozen_v3_sha256 != committed_spec_hash(FROZEN_V3_PATH):
+        raise HoldoutLocked("frozen v3 spec hash mismatch; prospective sample stays locked")
+    base = load_v3_estimation_panel()
+    dev = pd.read_parquet(RAW / "dev.parquet")
+    hold = pd.read_parquet(RAW / "holdout.parquet")
+    pro = pd.read_parquet(RAW / "prospective.parquet")
+    # dev and holdout share one basis (aligned as in v2); the prospective pull,
+    # made much later, overlaps November 2026 and sets the basis for all of it
+    dev = align_adjustment_basis(dev[pd.to_datetime(dev["date"]) <= DEV_END], hold)
+    hold = hold[(pd.to_datetime(hold["date"]) >= HOLDOUT_START)
+                & (pd.to_datetime(hold["date"]) <= V3_ESTIMATION_END)]
+    past = align_adjustment_basis(pd.concat([dev, hold], ignore_index=True), pro)
+    new = pro[pd.to_datetime(pro["date"]) >= PROSPECTIVE_START]
+    sessions = pd.DatetimeIndex(sorted(pd.to_datetime(new["date"]).unique()))
+    if len(sessions) < PROSPECTIVE_SESSIONS:
+        raise HoldoutLocked(f"only {len(sessions)} prospective sessions; the pre-registered read needs "
+                            f"{PROSPECTIVE_SESSIONS}")
+    new = new[pd.to_datetime(new["date"]) <= sessions[PROSPECTIVE_SESSIONS - 1]]
+    panel = to_panel(pd.concat([past, new], ignore_index=True))
+    if not panel.dates[panel.dates <= V3_ESTIMATION_END].equals(base.dates):
+        raise ValueError("prospective panel's history does not match the v3 estimation calendar")
+    return panel

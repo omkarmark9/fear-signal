@@ -17,7 +17,8 @@ from pathlib import Path
 from .config import HoldoutLocked
 
 ROOT = Path(__file__).resolve().parents[2]
-FROZEN_PATH = ROOT / "config" / "frozen.json"
+FROZEN_PATH = ROOT / "config" / "frozen.json"          # v2, frozen 2025-12-31 data
+FROZEN_V3_PATH = ROOT / "config" / "frozen_v3.json"    # v3, frozen 2026-11-23 data
 
 
 def spec_hash(path: Path = FROZEN_PATH) -> str:

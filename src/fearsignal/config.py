@@ -20,6 +20,13 @@ ERA_START = pd.Timestamp("2023-01-03")
 DEV_END = pd.Timestamp("2025-12-31")
 HOLDOUT_START = pd.Timestamp("2026-01-01")
 
+# v3 (docs/V3.md): the 2026 holdout is spent. v3 is re-estimated on everything
+# through V3_ESTIMATION_END and judged only on sessions after it, read once,
+# at exactly PROSPECTIVE_SESSIONS sessions (pre-registered power >= 0.89).
+V3_ESTIMATION_END = pd.Timestamp("2026-11-23")
+PROSPECTIVE_START = pd.Timestamp("2026-11-24")
+PROSPECTIVE_SESSIONS = 400
+
 # Observation construction (identical to the v1 starting point).
 SIGMA_WINDOW = 126          # sessions in the robust scale window, today excluded
 MAD_TO_SIGMA = 1.4826       # 1 / Phi^{-1}(3/4): median|N(0, s^2)| * 1.4826 = s
