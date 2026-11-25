@@ -105,6 +105,30 @@ def diebold_mariano(d: np.ndarray, horizon: int) -> dict:
     return {"mean": float(d.mean()), "t": t, "p_one_sided": float(stats.t.sf(t, df=n - 1)), "n": n}
 
 
+def clark_west(y: np.ndarray, f_small: np.ndarray, f_big: np.ndarray, horizon: int) -> dict:
+    """Clark and West (2007) test that a nesting model improves on the nested one.
+
+    Under the null the larger model's extra regressors have zero coefficients,
+    but estimating them adds noise, so the raw MSE difference is biased against
+    the larger model and a Diebold-Mariano test on it is undersized (Clark and
+    McCracken 2001, 2005). The adjusted loss differential
+
+        f_t = (y - f_small)^2 - [(y - f_big)^2 - (f_small - f_big)^2]
+
+    removes that bias; its mean is tested with a Newey-West t (h - 1 lags for
+    h-step-overlapping forecasts) against the one-sided standard normal.
+    """
+    y, a, b = (np.asarray(z, float) for z in (y, f_small, f_big))
+    ok = np.isfinite(y) & np.isfinite(a) & np.isfinite(b)
+    y, a, b = y[ok], a[ok], b[ok]
+    f = (y - a) ** 2 - ((y - b) ** 2 - (a - b) ** 2)
+    se = newey_west_se_mean(f, max(horizon - 1, 0))
+    t = float(f.mean() / se)
+    return {"mean_adj": float(f.mean()), "t": t, "p_one_sided": float(stats.norm.sf(t)),
+            "mse_small": float(np.mean((y - a) ** 2)), "mse_big": float(np.mean((y - b) ** 2)),
+            "n": int(len(f))}
+
+
 def stationary_bootstrap_indices(n: int, block: float, rng) -> np.ndarray:
     """One stationary-bootstrap resample of range(n) (geometric block lengths)."""
     idx = np.empty(n, dtype=int)
