@@ -11,6 +11,8 @@ diagnosis agents, one per v2 weak spot, plus one adversarial critic.
 | `volatility-increment/` | why the frozen HAR failed in 2026; candidates C1–C3 |
 | `overfitting-protocol/` | the selection protocol (SPA gate, Holm, prospective holdout), its simulations and the power analysis |
 | `critic/` | the critic's independent re-computations |
+| `stock-persistence/` | family F5, declared after the round from a dev-visible finding of the tail-calibration agent |
+| `operating-characteristics/` | pre-read simulations of the prospective tests' size and power |
 | `round_findings_and_critique.json` | every agent's structured report and the critic's verdicts |
 
 Each `candidates.md` was written before its candidates were scored. The
@@ -24,6 +26,7 @@ non-adoptable. SHA-256 of the declarations as committed:
 5aefb329ab135666d03c30ea349fd4b99c8b950b04273f438644f7202b6e1a60  tail-calibration/candidates.md
 d2c6cdf8dfdc1af7e02354702a81ff758effedc0cb129e7fc7a98ce429b83511  volatility-increment/candidates.md
 462ce7455fe6957d5a892b022c8dec67a9f56b6750353259cbfcc460f54bc653  overfitting-protocol/candidates.md
+f8711e510ccdc3089889d9009c3d109a57f090182c06d70fd634334a7de8cfc0  stock-persistence/candidates.md   (committed in 952c6d3, before its machinery and result)
 ```
 
 Scripts reference the scratch layout they ran in (`/tmp/claude-0/v3/...`,

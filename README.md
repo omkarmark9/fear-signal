@@ -26,8 +26,10 @@ to validate.
 * **v3 (current), frozen 2026-11-23, awaiting its prospective test.** v3
   changes the market index's scale to the object v2's dev selection actually
   chose, and changes how the volatility test is run. Everything else is v2.
-  Both changes were selected on 2023–2025 alone, with a data-snooping-robust
-  gate, after 2026 had been spent (`docs/V3.md`). Its single pre-registered
+  The market-scale change was selected on 2023–2025 alone and passed a
+  data-snooping-robust gate after 2026 had been spent. The volatility-test
+  change is an evaluation convention with no improvement claimed
+  (`docs/V3.md`). Its single pre-registered
   read is the first 400 sessions after 2026-11-23, around mid-2028
   (`docs/PREREGISTRATION_v3.md`). The code refuses to read that sample
   earlier.
@@ -57,8 +59,10 @@ Latest reading (2026-11-23):
 - v2 frozen: **M = 1.80** (90% band 1.65–1.94), *stressed*; expected share of AI stocks in a stressed or panic regime 74%.
 - v3: **M = 2.17** (band 2.00–2.23) on its linear scale; percentile score 1.95, *stressed*; breadth 82%. 2026-11-20 was a high-conviction *acute fear* day (M_pct_lo ≥ 2).
 
-The two versions differ on 11-23 because v3 is re-estimated with 2026 data, in
-which the stressed regime is stickier (self-transition 0.93 against 0.89).
+The two versions differ on 11-23 for two reasons. Re-estimation with 2026
+data, in which the stressed regime is stickier (self-transition 0.93 against
+0.89), moves the percentile score from 1.80 to 1.95. The change of scale, from
+percentile to linear, moves the headline from 1.95 to 2.17.
 
 ![Market fear and VXN](docs/figures/market_fear.png)
 

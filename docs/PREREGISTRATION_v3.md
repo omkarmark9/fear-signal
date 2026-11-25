@@ -1,8 +1,11 @@
 # Pre-registration: the v3 prospective read
 
-Committed together with `config/frozen_v3.json` and
-`config/frozen_v3_challenger_F5.json`. When this was written, no market data
-dated after 2026-11-23 existed in this repository or its data cache.
+First committed together with `config/frozen_v3.json` and
+`config/frozen_v3_challenger_F5.json` (f8a698a). Two later commits amended
+it, both before any market data dated after 2026-11-23 existed in this
+repository or its data cache:
+- 07f7739 added the operating characteristics and tightened P-H1;
+- the commit applying the v3 review added these clarifications.
 `fearsignal download-prospective` refuses to run until the v3 spec is
 committed, and `data.load_prospective_panel` refuses to return anything until
 the full sample below exists.
@@ -35,7 +38,7 @@ session calendar.
 | P-H4 | M adds to HAR for 5-day basket volatility | recursive expanding-window HAR vs HAR+M (rows s ≤ t−5), **Clark–West** t; frozen-coefficient DM-HLN reported as secondary | "adds" claimed if the one-sided p < 0.05; **underpowered** (about 5 years are needed for 80% power at the dev effect size) |
 | P-H5 | M predicts basket returns (secondary) | 20-day slope; Hodrick 1B | claimed only if p < 0.05 **and** the sign matches dev |
 | P-H6 | alert precision (descriptive) | days with M_pct ≥ 2 and with M_pct_lo ≥ 2 vs VXN ≥ 24.67 | reported against the base rate |
-| P-F5 | the F5 challenger forecasts stocks better than v3's S1 | daily one-step log-score gain, NW(10) s.e. | "F5 better" claimed if the one-sided p < 0.05 **and** the challenger's market-layer ρ is not lower than v3's by more than one s.e. (the same two conditions that blocked it on dev) |
+| P-F5 | the F5 challenger forecasts stocks better than v3's S1 | daily one-step log-score gain, NW(10) s.e. | "F5 better" claimed if the one-sided p < 0.05 **and** the challenger's market-layer ρ is not lower than v3's by more than one s.e. (these test dev criteria (a)/(b) and (d) again. Criterion (c), the mechanism signature, is a property of the frozen parameters, not of the prospective sample. It held in only 1 of 3 dev folds, and it holds in the frozen full-window fit: stressed self-transition 0.851 after idiosyncratic days vs 0.976 after systemic days; panic 0.128 vs 0.475. It is reported, not re-tested) |
 | replication | v2-frozen P-H1 and P-H2 on the same sample | as above | an independent second test of v2 |
 
 Multiplicity: P-H4 and P-F5 are the two claim-type tests. Holm at
@@ -57,9 +60,9 @@ mean block 20 and 2000 resamples, as in the code.
 drafted rule (95% interval, lower bound > 0.30) and a true ρ of exactly
 0.30 at N = 400, the false-pass rate is 4.0% (Gaussian), 2.2% (2026
 structure) and 5.0% (dev structure), against a nominal 2.5% (MC s.e.
-0.2–0.35 pp, 4000 replications). The block bootstrap understates the
-sampling s.d. by about 10% under heavy-tailed, volatility-clustered
-dependence. Interval coverage is 91–96%. The rule was therefore tightened
+0.2–0.35 pp, 4000 replications). The block bootstrap's s.d. is 8–9% below
+the true sampling s.d. under the Gaussian and dev-structure processes, and
+6% above it under the 2026 structure. Interval coverage is 91–96%. The rule was therefore tightened
 before any data existed: with the 97.5% interval the boundary false-pass
 rate is 2.4% / 1.1% / 3.0%.
 

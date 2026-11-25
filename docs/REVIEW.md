@@ -59,3 +59,42 @@ all NYSE holidays, so no five-session change is stretched. All 11 censored
 | P2 | minor | H1b labelled "fail" though pre-registered as "claimed only if"; H5's same-sign clause skipped when dev was not passed | claim-type labels for H1b/H2b; dev reference now required for H5 |
 | P3 | minor | partial SNDK bars on 11-20 and 11-23 (correctly masked); breadth described as a count | footnote added; breadth described as an expected share |
 | P4 | trivial | F6 above cited the Brier sample size as the log-score sample size | corrected |
+
+## Round 3 — the v3 revision (code at `07f7739`)
+
+A fresh reviewer checked the v3 code, a v2 regression, the v3 artifacts and
+every number in the v3 documents. It was interrupted by a container restart
+and resumed from its transcript.
+
+**Found correct:**
+- The HMM with stacked, regime-indexed transitions agrees with an
+  independent log-space implementation within 1e-12. That covers the
+  log-likelihood, filtered and smoothed marginals, pair counts split by
+  regime, and the EM update. The t → t+1 timing is consistent across the
+  forward, backward and pair-count steps. 2-D transitions are bitwise
+  unchanged.
+- The shock-type label is causal and is carried by each bootstrap block's
+  original dates.
+- v2's frozen spec still reproduces `market_fear.csv` byte for byte, the
+  stock table's content and `holdout_results.json` with no difference.
+- Every v3 artifact recomputes exactly: in-sample signal history,
+  estimation reference, post-hoc diagnostics, the F5 challenger and
+  `compare_family` (gain 0.0024054, s.e. 0.0011113).
+- Recursive HAR and Clark–West recompute exactly (t 3.8999), and the
+  within/between calibration split is right.
+- The P-H1 tightening's code matches the pre-registration, and its tables
+  match the simulation.
+- F5's declaration commit precedes its machinery and its result.
+
+| # | severity | finding | resolution |
+|---|---|---|---|
+| V1 | major | a stock split between the holdout pull and the prospective pull would make `align_adjustment_basis` raise, blocking the single pre-registered read | alignment now estimates a per-ticker split factor (close and low) and dividend factor (adjusted close) and checks that each is constant on the overlap; tested with a 2:1 split plus a dividend |
+| V2 | minor | a ticker with rows on both sides of the overlap but none inside it was silently left on the old basis | now an error |
+| V3 | minor | the prospective read did not check the pre-registered hashes, the comparator hash, the data manifests or the universe | all are checked (`config.PREREGISTERED_SHA256`); a "started" entry is logged before any prospective bar loads, so a crash cannot hide an attempt |
+| V4 | minor | P-H2's leave-one-day-out range and within/between slopes were pre-registered but not computed | `validate.tail_calibration_detail`, reported as `P_H2_detail` |
+| V5 | minor | F5's signature described as "held in part", with panic said to go "as predicted"; it held in 1 of 3 folds, and panic went the predicted way in 2 of 3 | corrected in V3.md, with the review's gain-by-shock-type breakdown; P-F5 states that criterion (c) is reported, not re-tested |
+| V6 | minor | "M ≥ 2" in the forward-return summary used the linear M, not the alert definition | uses `M_pct`; only those four summary values changed |
+| V7 | minor | README and V3.md overstatements (both v3 changes "gated"; the 11-23 difference attributed only to re-estimation; alert days "identical"); five objects scored against a cap of four not disclosed; F5 hash missing from the ledger | corrected |
+| V8 | minor | the pre-registration header no longer literally true after its amendment; the bootstrap s.d. bias misattributed; the power comment in `config.py` out of date | corrected |
+| V9 | minor | two v3 outputs had no committed generator; `frozen_v3.json` predates the `persistence_by_shock` field | generators added (`fearsignal v3-reference`); reproducibility note in V3.md |
+| V10 | latent | `bootstrap.parameter_table` failed on stacked transitions; `good[: t-4]` could wrap for t < 4 | fixed |
