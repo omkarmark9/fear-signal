@@ -103,15 +103,24 @@ class FilterResult:
         return float(self.logc.sum())
 
 
+def _step(a: np.ndarray, A: np.ndarray, regime: np.ndarray | None, t: int) -> np.ndarray:
+    """a A for one step; with a stack A (M,K,K), stock n uses A[regime[t, n]]."""
+    if A.ndim == 2:
+        return a @ A
+    return np.einsum("nk,nkj->nj", a, A[regime[t]])
+
+
 def forward(logE: np.ndarray, A: np.ndarray, init: np.ndarray, start: np.ndarray,
-            end: np.ndarray) -> FilterResult:
+            end: np.ndarray, regime: np.ndarray | None = None) -> FilterResult:
+    """Scaled forward filter. ``A`` is (K,K), or a stack (M,K,K) with ``regime``
+    (T,N) selecting the matrix for the transition t -> t+1."""
     T, N, K = logE.shape
     alpha = np.empty((T, N, K))
     pred = np.empty((T, N, K))
     logc = np.zeros((T, N))
     a_prev = np.broadcast_to(init, (N, K)).copy()
     for t in range(T):
-        p = a_prev @ A
+        p = _step(a_prev, A, regime, t - 1) if t else a_prev.copy()   # t = 0 is always a start
         first = t <= start            # sequence not started yet, or starts today
         p[first] = init
         m = logE[t].max(axis=1, keepdims=True)
@@ -126,7 +135,8 @@ def forward(logE: np.ndarray, A: np.ndarray, init: np.ndarray, start: np.ndarray
     return FilterResult(alpha, pred, logc, start, end)
 
 
-def backward(logE: np.ndarray, A: np.ndarray, fr: FilterResult) -> np.ndarray:
+def backward(logE: np.ndarray, A: np.ndarray, fr: FilterResult,
+             regime: np.ndarray | None = None) -> np.ndarray:
     """Scaled backward variables matched to ``forward``'s normalisers."""
     T, N, K = logE.shape
     beta = np.ones((T, N, K))
@@ -135,22 +145,29 @@ def backward(logE: np.ndarray, A: np.ndarray, fr: FilterResult) -> np.ndarray:
         if not inside.any():
             continue
         w = np.exp(logE[t + 1] - fr.logc[t + 1][:, None]) * beta[t + 1]
-        b = w @ A.T
+        b = w @ A.T if A.ndim == 2 else np.einsum("nij,nj->ni", A[regime[t]], w)
         beta[t] = np.where(inside[:, None], b, 1.0)
     return beta
 
 
-def smooth(logE: np.ndarray, A: np.ndarray, init: np.ndarray, start, end):
-    """Return (FilterResult, gamma, xi_sum, gamma_at_start)."""
-    fr = forward(logE, A, init, start, end)
-    beta = backward(logE, A, fr)
+def smooth(logE: np.ndarray, A: np.ndarray, init: np.ndarray, start, end,
+           regime: np.ndarray | None = None):
+    """Return (FilterResult, gamma, xi_sum, gamma_at_start). With a stack A,
+    xi_sum is (M,K,K): expected transition counts split by regime."""
+    fr = forward(logE, A, init, start, end, regime)
+    beta = backward(logE, A, fr, regime)
     gamma = fr.alpha * beta
     gamma /= gamma.sum(axis=2, keepdims=True)
     T, N, K = logE.shape
     tt = np.arange(T - 1)[:, None]
     pair = (tt >= start[None, :]) & (tt + 1 <= end[None, :])           # (T-1, N)
     w = np.exp(logE[1:] - fr.logc[1:][:, :, None]) * beta[1:]           # (T-1, N, K)
-    xi = np.einsum("tni,tnj,tn->ij", fr.alpha[:-1], w, pair.astype(float)) * A
+    if A.ndim == 2:
+        xi = np.einsum("tni,tnj,tn->ij", fr.alpha[:-1], w, pair.astype(float)) * A
+    else:
+        xi = np.stack([np.einsum("tni,tnj,tn->ij", fr.alpha[:-1], w,
+                                 (pair & (regime[:-1] == m)).astype(float)) * A[m]
+                       for m in range(A.shape[0])])
     has = start < T
     g0 = gamma[start[has], np.flatnonzero(has)]                          # (N', K)
     return fr, gamma, xi, g0
@@ -311,15 +328,24 @@ class HMM:
 
     @property
     def K(self) -> int:
-        return self.A.shape[0]
+        return self.A.shape[-1]
 
     @property
     def stationary(self) -> np.ndarray:
-        return stationary(self.A)
+        """Prior for a newly eligible stock; with a stack, the idiosyncratic chain's."""
+        return stationary(self.A if self.A.ndim == 2 else self.A[0])
 
     def n_params(self) -> int:
         K = self.K
-        return self.emission.n_params() + K * (K - 1) + (K - 1)
+        M = 1 if self.A.ndim == 2 else self.A.shape[0]
+        return self.emission.n_params() + M * K * (K - 1) + (K - 1)
+
+    def regime_of(self, obs: Obs) -> np.ndarray | None:
+        if self.A.ndim == 2:
+            return None
+        if obs.regime is None:
+            raise ValueError("this model's transitions depend on obs.regime, which is missing")
+        return obs.regime
 
     def filter(self, obs: Obs, init: np.ndarray | None = None) -> FilterResult:
         """Causal filter. New sequences start from the stationary law unless given."""
@@ -328,14 +354,15 @@ class HMM:
         # for live use every column runs to the end of the panel.
         end = np.where(start < obs.kind.shape[0], obs.kind.shape[0] - 1, end)
         logE = self.emission.log_emissions(obs)
-        return forward(logE, self.A, self.stationary if init is None else init, start, end)
+        return forward(logE, self.A, self.stationary if init is None else init, start, end,
+                       self.regime_of(obs))
 
     def canonical(self) -> "HMM":
         order = np.argsort(self.emission.sort_key())
         return replace(
             self,
             emission=self.emission.permute(order),
-            A=self.A[np.ix_(order, order)],
+            A=self.A[np.ix_(order, order)] if self.A.ndim == 2 else self.A[:, order][:, :, order],
             init=None if self.init is None else self.init[order],
         )
 
@@ -351,21 +378,22 @@ def em(model: HMM, obs: Obs, max_iter: int = 500, tol: float = 1e-8,
     init = model.init if model.init is not None else model.stationary
     em_ = model.emission
     A = model.A.copy()
+    regime = model.regime_of(obs)
     hist: list[float] = []
     converged = False
     for _ in range(max_iter):
         logE = em_.log_emissions(obs)
-        fr, gamma, xi, g0 = smooth(logE, A, init, start, end)
+        fr, gamma, xi, g0 = smooth(logE, A, init, start, end, regime)
         hist.append(fr.loglik)
         if len(hist) > 1 and abs(hist[-1] - hist[-2]) <= tol * abs(hist[-2]):
             converged = True
             break
-        A = xi / xi.sum(axis=1, keepdims=True)
+        A = xi / xi.sum(axis=-1, keepdims=True)
         if fit_init and len(g0):
             init = g0.mean(axis=0)
         em_ = em_.m_step(obs, gamma)
     else:  # iteration budget exhausted: score the final update
-        hist.append(forward(em_.log_emissions(obs), A, init, start, end).loglik)
+        hist.append(forward(em_.log_emissions(obs), A, init, start, end, regime).loglik)
     if not converged:
         warnings.warn(f"EM stopped at max_iter={max_iter} before reaching tol={tol:g}",
                       RuntimeWarning, stacklevel=2)

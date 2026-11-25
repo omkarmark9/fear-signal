@@ -214,6 +214,45 @@ def logistic_calibration(q: np.ndarray, y: np.ndarray, groups: np.ndarray | None
             "se_intercept": float(np.sqrt(cov[0, 0])), "se_slope": float(np.sqrt(cov[1, 1]))}
 
 
+def logistic_fit(X: np.ndarray, y: np.ndarray, groups: np.ndarray | None = None,
+                 iters: int = 60) -> dict:
+    """Logistic regression by Newton's method, with optional cluster-robust s.e."""
+    X = np.asarray(X, float)
+    y = np.asarray(y, float)
+    beta = np.zeros(X.shape[1])
+    for _ in range(iters):
+        mu = 1 / (1 + np.exp(-(X @ beta)))
+        H = X.T @ (X * (mu * (1 - mu))[:, None])
+        step = np.linalg.solve(H, X.T @ (y - mu))
+        beta += step
+        if np.max(np.abs(step)) < 1e-10:
+            break
+    Hinv = np.linalg.inv(H)
+    cov = Hinv
+    if groups is not None:
+        mu = 1 / (1 + np.exp(-(X @ beta)))
+        _, g = np.unique(np.asarray(groups), return_inverse=True)
+        G = np.zeros((g.max() + 1, X.shape[1]))
+        np.add.at(G, g, X * (y - mu)[:, None])
+        cov = Hinv @ (G.T @ G) @ Hinv
+    return {"beta": beta, "se": np.sqrt(np.diag(cov))}
+
+
+def within_between_calibration(q: np.ndarray, y: np.ndarray, day: np.ndarray) -> dict:
+    """Split the calibration slope into between-day and within-day parts.
+
+    logit P(y) = a + b_between * mean_day(logit q) + b_within * (logit q - mean_day(logit q)).
+    b_within < 1 means the spread of forecasts across stocks on a day is too wide.
+    """
+    lq = np.log(np.clip(q, 1e-9, 1 - 1e-9) / (1 - np.clip(q, 1e-9, 1 - 1e-9)))
+    _, g = np.unique(day, return_inverse=True)
+    mean = np.bincount(g, lq) / np.bincount(g)
+    X = np.column_stack([np.ones_like(lq), mean[g], lq - mean[g]])
+    r = logistic_fit(X, y, groups=g)
+    return {"between": float(r["beta"][1]), "se_between": float(r["se"][1]),
+            "within": float(r["beta"][2]), "se_within": float(r["se"][2])}
+
+
 def reliability_table(q: np.ndarray, y: np.ndarray, bins=(0, .005, .01, .02, .05, .1, .2, .5, 1)) -> list[dict]:
     q = np.asarray(q, float)
     y = np.asarray(y, float)

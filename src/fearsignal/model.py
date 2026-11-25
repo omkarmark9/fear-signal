@@ -25,6 +25,7 @@ class StockSpec:
     zero_mode: str          # "none" | "shared" | "state"
     censor: bool
     fixed: bool = False     # True: use the published v1 parameters, no fitting
+    persistence_by_shock: bool = False   # family F5: A^(0) idiosyncratic, A^(1) systemic
 
 
 CANDIDATES = (
@@ -43,6 +44,12 @@ CANDIDATES = (
 # deliberately not used, because they were estimated on 2023-2025 and would
 # leak full-sample information into the walk-forward folds.
 _START_S = {2: (1.0, 2.2), 3: (1.0, 1.6, 4.0), 4: (0.9, 1.35, 2.3, 4.6)}
+
+
+# Family F5 (research/v3/stock-persistence/candidates.md): S1 with transitions
+# that depend on whether day t was idiosyncratic or systemic. Not in CANDIDATES:
+# it is scored as its own family against S1.
+F5_SPEC = StockSpec("S1PT_persistence_by_shock", 3, "none", False, persistence_by_shock=True)
 
 
 def _base_scales(K: int) -> np.ndarray:
@@ -71,6 +78,8 @@ def starting_points(spec: StockSpec, obs: Obs, n_random: int = 3, seed: int = 0)
         A = _base_A(spec.K)
         if r:
             A = np.array([rng.dirichlet(200 * row + 0.5) for row in A])
+        if spec.persistence_by_shock:   # same start for both regimes; EM separates them
+            A = np.stack([A, A.copy()])
         pi = None
         if spec.zero_mode != "none":
             jitter = rng.normal(0, 0.03, spec.K) if r else np.zeros(spec.K)
@@ -158,7 +167,12 @@ def compute_signal(model: hmm.HMM, obs: Obs, z_map: scoring.QuantileMap | None,
     with np.errstate(all="ignore"):
         I = scoring.robust_cross_section_z(Z)
     e = as_scoring_model(model, train_zero_rate).emission
-    q_next = np.where(el, (np.nan_to_num(alpha) @ model.A) @ e.tail_prob(TAIL_THRESHOLD), np.nan)
+    a0 = np.nan_to_num(alpha)
+    if model.A.ndim == 2:
+        pred_next = a0 @ model.A
+    else:                       # transition t -> t+1 uses A[regime_t]
+        pred_next = np.einsum("tnk,tnkj->tnj", a0, model.A[model.regime_of(obs)])
+    q_next = np.where(el, pred_next @ e.tail_prob(TAIL_THRESHOLD), np.nan)
     B = market.breadth(fr.alpha, el)
     BL = np.where(np.isfinite(B), scoring.logit(B), np.nan)
     M_pct = m_map(BL) if m_map is not None else np.full_like(BL, np.nan)

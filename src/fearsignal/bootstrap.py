@@ -41,7 +41,8 @@ def block_resample(obs: Obs, rng, block: int = BLOCK) -> Obs:
     ks = [obs.kind[s:s + block] for s in starts]
     x = np.concatenate(xs, axis=1)
     kind = np.concatenate(ks, axis=1)
-    return Obs(x, kind, obs.dates[:block], [f"b{j}" for j in range(x.shape[1])])
+    reg = None if obs.regime is None else np.concatenate([obs.regime[s:s + block] for s in starts], axis=1)
+    return Obs(x, kind, obs.dates[:block], [f"b{j}" for j in range(x.shape[1])], reg)
 
 
 def replicate_fits(point: hmm.HMM, obs: Obs, n_boot: int = 200, seed: int = 0,

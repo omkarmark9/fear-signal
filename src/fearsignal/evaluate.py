@@ -244,3 +244,71 @@ def run(n_random: int = 2, seed: int = 0, out_path=None) -> dict:
         with open(out_path, "w") as fh:
             json.dump(results, fh, indent=2, default=float)
     return results
+
+
+def compare_family(candidate: "mdl.StockSpec", incumbent_name: str = "S1_v1_refit",
+                   n_random: int = 2, seed: int = 0, B: int = 999, R: int = 999) -> dict:
+    """Score one declared stock-layer candidate against the incumbent on the dev
+    walk-forward, with exactly the folds, seeds and scoring of ``run``.
+
+    Returns the daily log-score differential and its NW(10) s.e., the
+    calibrated SPA_c p-value (K = 1), per-fold gains, the fitted transition
+    matrices (for the mechanism check), the market-layer check, and secondary
+    tail-forecast diagnostics.
+    """
+    from . import spa
+
+    panel = data.load_dev_panel()
+    obs = features.compute(panel).obs
+    dates = obs.dates
+    T, N = obs.x.shape
+    y_tail = mdl.tail_event(obs)
+    inc_spec = next(c for c in mdl.CANDIDATES if c.name == incumbent_name)
+    ls = {k: np.full(T, np.nan) for k in ("inc", "cand")}
+    q = {k: np.full((T, N), np.nan) for k in ("inc", "cand")}
+    BL = {k: np.full(T, np.nan) for k in ("inc", "cand")}
+    nobs = np.zeros(T)
+    block = np.full(T, -1)
+    folds = []
+    for b, (tr_end, test) in enumerate(_fold_masks(dates)):
+        block[test] = b
+        tr = obs.slice_time(tr_end)
+        z0 = mdl.zero_rate(tr)
+        idx = np.flatnonzero(test)
+        nobs[idx] = obs.eligible[idx].sum(axis=1)
+        fold = {"train_end": str(tr_end.date())}
+        for key, spec in (("inc", inc_spec), ("cand", candidate)):
+            m = mdl.fit_stock_model(spec, tr, n_random=n_random, seed=seed)
+            fr = mdl.as_scoring_model(m, z0).filter(obs)
+            ls[key][idx] = fr.logc[idx].sum(axis=1)
+            sig = mdl.compute_signal(m, obs, None, None, z0)
+            qd = np.vstack([np.full((1, N), np.nan), sig.q_next[:-1]])
+            q[key][idx] = qd[idx]
+            BL[key][idx] = sig.breadth_L[idx]
+            fold[key] = {"A": m.A.tolist(), "s": m.emission.s.tolist(), "converged": m.converged,
+                         "loglik_train": m.loglik, "n_params": m.n_params()}
+        fold["gain_per_obs"] = float((ls["cand"][idx] - ls["inc"][idx]).sum() / nobs[idx].sum())
+        folds.append(fold)
+    scored = np.isfinite(ls["inc"])
+    tot = nobs[scored].sum()
+    d = (ls["cand"] - ls["inc"])[scored] / nobs[scored]         # per-observation daily gain
+    gain = float((ls["cand"] - ls["inc"])[scored].sum() / tot)
+    se = float(stats.newey_west_se_mean((ls["cand"] - ls["inc"])[scored], 10) * scored.sum() / tot)
+    gate = spa.spa_calibrated(d[:, None], block=10, B=B, R=R, seed=seed)
+    vxn = load_vxn().reindex(dates).to_numpy()
+    a = d5_within_blocks(BL["cand"], vxn, block)
+    bb = d5_within_blocks(BL["inc"], vxn, block)
+    j = a.index.intersection(bb.index)
+    mkt = stats.corr_diff_ci(a.loc[j, "s"], bb.loc[j, "s"], a.loc[j, "v"], n_boot=2000)
+    sec = {}
+    day = np.broadcast_to(np.arange(T)[:, None], (T, N))
+    for key in ("inc", "cand"):
+        ok = np.isfinite(q[key]) & np.isfinite(y_tail)
+        sec[key] = {"brier": float(np.mean((q[key][ok] - y_tail[ok]) ** 2)),
+                    "calibration": stats.logistic_calibration(q[key][ok], y_tail[ok], groups=day[ok]),
+                    "within_between": stats.within_between_calibration(q[key][ok], y_tail[ok], day[ok])}
+    return {"candidate": candidate.name, "incumbent": incumbent_name,
+            "n_days": int(scored.sum()), "n_obs": int(tot),
+            "gain_per_obs": gain, "nw10_se_per_obs": se, "gain_over_se": gain / se,
+            "spa_calibrated": {k: (v.tolist() if hasattr(v, "tolist") else v) for k, v in gate.items()},
+            "folds": folds, "market_d5_spearman_cand_minus_inc": mkt, "tail_secondary": sec}

@@ -39,7 +39,7 @@ def model_to_dict(m: hmm.HMM, decimals: int = 10) -> dict:
 
 def model_from_dict(d: dict) -> hmm.HMM:
     A = np.asarray(d["A"], float)
-    A = A / A.sum(axis=1, keepdims=True)
+    A = A / A.sum(axis=-1, keepdims=True)
     pi = None if d["pi"] is None else np.asarray(d["pi"], float)
     return hmm.HMM(hmm.HalfNormalEmission(np.asarray(d["s"], float), pi, d["zero_mode"], d["censor"]), A)
 

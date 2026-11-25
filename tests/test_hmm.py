@@ -181,3 +181,61 @@ def test_em_reports_convergence():
     assert not capped.converged
     done = hmm.em(_model("none", False), obs, max_iter=2000, tol=1e-8)
     assert done.converged
+
+
+def _brute_tv(logE, As, init):
+    """Brute force with a time-varying transition: step t-1 -> t uses As[t-1]."""
+    T, K = logE.shape
+    E = np.exp(logE)
+    paths = np.array(list(itertools.product(range(K), repeat=T)))
+    w = init[paths[:, 0]] * E[0, paths[:, 0]]
+    for t in range(1, T):
+        w = w * As[t - 1][paths[:, t - 1], paths[:, t]] * E[t, paths[:, t]]
+    lik = w.sum()
+    smooth = np.array([[w[paths[:, t] == k].sum() / lik for k in range(K)] for t in range(T)])
+    return smooth, np.log(lik)
+
+
+def test_regime_dependent_transitions_match_brute_force():
+    rng = np.random.default_rng(21)
+    obs, _ = simulate_halfnormal(S_V1, A_V1, None, T=6, N=1, rng=rng)
+    A0 = A_V1
+    A1 = np.array([[0.80, 0.15, 0.05], [0.10, 0.85, 0.05], [0.10, 0.50, 0.40]])
+    stack = np.stack([A0, A1])
+    regime = np.array([[0], [1], [1], [0], [1], [0]], dtype=np.int8)
+    m = hmm.HMM(hmm.HalfNormalEmission(S_V1.copy(), None, "none", False), stack)
+    logE = m.emission.log_emissions(obs)
+    init = np.array([0.5, 0.3, 0.2])
+    start, end = hmm.sequence_bounds(obs.eligible)
+    fr, gamma, xi, _ = hmm.smooth(logE, stack, init, start, end, regime)
+    smooth, ll = _brute_tv(logE[:, 0], [stack[regime[t, 0]] for t in range(5)], init)
+    np.testing.assert_allclose(gamma[:, 0], smooth, atol=1e-12)
+    np.testing.assert_allclose(fr.loglik, ll, rtol=1e-12)
+    # pair counts split by regime add up to the regime-free total
+    assert xi.shape == (2, 3, 3) and np.isclose(xi.sum(), 5.0)
+    assert np.isclose(xi[0].sum(), (regime[:5, 0] == 0).sum())
+
+
+@pytest.mark.filterwarnings("ignore:EM stopped")
+def test_em_with_regime_transitions_is_monotone_and_recovers_persistence():
+    rng = np.random.default_rng(22)
+    T, N = 600, 60
+    A0 = np.array([[0.97, 0.02, 0.01], [0.30, 0.65, 0.05], [0.50, 0.30, 0.20]])   # short-lived stress
+    A1 = np.array([[0.90, 0.07, 0.03], [0.05, 0.90, 0.05], [0.20, 0.40, 0.40]])   # persistent stress
+    reg = (rng.random(T) < 0.2).astype(np.int8)
+    S = np.zeros((T, N), int)
+    S[0] = rng.choice(3, N, p=hmm.stationary(A0))
+    for t in range(1, T):
+        P = (A1 if reg[t - 1] else A0)[S[t - 1]]
+        S[t] = (rng.random(N)[:, None] > np.cumsum(P, axis=1)).sum(axis=1)
+    x = np.abs(rng.standard_normal((T, N))) * S_V1[S]
+    kind = np.where(x >= 10, 3, 2).astype(np.int8)
+    from fearsignal.features import Obs as O
+    obs = O(np.minimum(x, 10), kind, None, [str(i) for i in range(N)], np.repeat(reg[:, None], N, 1))
+    start = hmm.HMM(hmm.HalfNormalEmission(np.array([0.8, 1.4, 3.0]), None, "none", True),
+                    np.stack([A_V1, A_V1]))
+    fit = hmm.em(start, obs, max_iter=300, tol=1e-10)
+    h = np.array(fit.history)
+    assert np.all(np.diff(h) >= -1e-7 * np.abs(h[:-1]))
+    assert fit.A[0][1, 1] < fit.A[1][1, 1] - 0.1          # stress persists less after idiosyncratic days
+    np.testing.assert_allclose(fit.emission.s, S_V1, rtol=0.06)

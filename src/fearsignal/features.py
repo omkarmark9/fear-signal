@@ -40,6 +40,12 @@ from .data import Panel
 
 MISSING, ZERO, EXACT, CENSORED = 0, 1, 2, 3
 
+# Shock-type label (family F5, research/v3/stock-persistence/candidates.md):
+# a day is "systemic" when at least SYSTEMIC_SHARE of eligible stocks dip
+# SYSTEMIC_X own-sigmas or more, otherwise "idiosyncratic". Fixed, not searched.
+SYSTEMIC_X = 2.0
+SYSTEMIC_SHARE = 0.10
+
 
 @dataclass
 class Obs:
@@ -49,6 +55,7 @@ class Obs:
     kind: np.ndarray    # int8 observation kind
     dates: pd.DatetimeIndex
     tickers: list[str]
+    regime: np.ndarray | None = None   # int8 shock-type label per stock-day (see shock_regime)
 
     @property
     def eligible(self) -> np.ndarray:
@@ -56,7 +63,8 @@ class Obs:
 
     def slice_time(self, end) -> "Obs":
         m = self.dates <= pd.Timestamp(end)
-        return Obs(self.x[m], self.kind[m], self.dates[m], self.tickers)
+        reg = None if self.regime is None else self.regime[m]
+        return Obs(self.x[m], self.kind[m], self.dates[m], self.tickers, reg)
 
 
 @dataclass
@@ -94,4 +102,19 @@ def compute(panel: Panel, window: int = SIGMA_WINDOW) -> Features:
     kind[ok & (d > ZERO_EPS) & (d < X_CLIP)] = EXACT
     kind[ok & (d >= X_CLIP)] = CENSORED
     x = np.where(ok, np.minimum(d, X_CLIP), np.nan)
-    return Features(Obs(x, kind, panel.dates, list(panel.tickers)), sigma, r, d)
+    obs = Obs(x, kind, panel.dates, list(panel.tickers))
+    obs.regime = shock_regime(obs)
+    return Features(obs, sigma, r, d)
+
+
+def shock_regime(obs: Obs) -> np.ndarray:
+    """1 on systemic days, 0 on idiosyncratic days, for every stock (T x N).
+
+    Uses only the cross-section of day t, so a transition t -> t+1 that depends
+    on it is still causal.
+    """
+    el = obs.eligible
+    hit = el & (np.nan_to_num(obs.x) >= SYSTEMIC_X)
+    share = hit.sum(axis=1) / np.maximum(el.sum(axis=1), 1)
+    m = (share >= SYSTEMIC_SHARE).astype(np.int8)
+    return np.repeat(m[:, None], obs.x.shape[1], axis=1)
