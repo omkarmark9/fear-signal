@@ -106,3 +106,31 @@ def test_challenger_with_regime_stack_round_trips_through_frozen_dict():
     m2 = pipeline.model_from_dict(pipeline.model_to_dict(m))
     assert m2.A.shape == (2, 3, 3)
     np.testing.assert_allclose(m2.A, A, atol=1e-10)
+
+
+def test_prospective_refuses_a_hash_that_is_not_preregistered(tmp_path, monkeypatch):
+    from fearsignal import data, pipeline
+    monkeypatch.setattr(pipeline, "OUT", tmp_path)
+    with pytest.raises(data.HoldoutLocked):
+        pipeline.prospective("0" * 64)
+
+
+def test_parameter_table_handles_stacked_transitions():
+    from fearsignal import bootstrap
+    A = np.stack([mdl.V1_A, mdl.V1_A])
+    m = hmm.HMM(hmm.HalfNormalEmission(mdl.V1_S.copy(), None, "none", False), A)
+    tab = bootstrap.parameter_table(m, [m, m])
+    assert np.array(tab["expected_duration"]["point"]).shape == (2, 3)
+
+
+def test_tail_calibration_detail_brackets_the_full_slope():
+    rng = np.random.default_rng(7)
+    obs, _ = simulate_halfnormal(mdl.V1_S, mdl.V1_A, None, T=160, N=40, rng=rng)
+    m = hmm.HMM(hmm.HalfNormalEmission(mdl.V1_S.copy(), None, "none", False), mdl.V1_A.copy())
+    sig = mdl.compute_signal(m, obs, None, None, 0.0)
+    feat = type("F", (), {"obs": obs})()
+    mask = np.ones(160, bool)
+    det = validate.tail_calibration_detail(sig, feat, mask)
+    full = validate.tail_forecast(sig, feat, mask, 0.03)["calibration"]["slope"]
+    assert det["loo_slope_min"] <= full <= det["loo_slope_max"]
+    assert det["n_days"] > 100

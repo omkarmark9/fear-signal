@@ -269,8 +269,8 @@
     "hodrick_1b_t": -0.01625863605604278,
     "hodrick_1b_p": 0.9870319735685593,
     "mean_fwd_all": 0.029876121902205552,
-    "n_days_M_ge_2": 29,
-    "mean_fwd_M_ge_2": 0.036088381711562104
+    "n_days_M_ge_2": 18,
+    "mean_fwd_M_ge_2": 0.053859031920614635
   },
   "forward_returns_5d": {
     "horizon": 5,
@@ -279,8 +279,8 @@
     "hodrick_1b_t": 0.3071985667280798,
     "hodrick_1b_p": 0.7587681071740786,
     "mean_fwd_all": 0.006968604974257344,
-    "n_days_M_ge_2": 31,
-    "mean_fwd_M_ge_2": 0.023250973605333247
+    "n_days_M_ge_2": 19,
+    "mean_fwd_M_ge_2": 0.021650478554825544
   },
   "alerts": {
     "vxn_elevated_threshold": 24.67,

@@ -9,7 +9,7 @@
     fearsignal figures                      docs/figures from the holdout outputs
     fearsignal posthoc-2026                 labelled post-hoc diagnostic of the v3 market scale
     fearsignal freeze-v3                    re-estimate v3 on 2023-01-03..2026-11-23
-    fearsignal v3-reference                 in-sample v3 metrics on its estimation period
+    fearsignal v3-reference                 in-sample v3 metrics, signal history and F5 diagnostic
     fearsignal download-prospective --end-exclusive D   bars + VXN after 2026-11-23
     fearsignal prospective --sha256 HASH    the single pre-registered v3 read (400 sessions)
     fearsignal latest [--top N]             latest market and stock readings
@@ -104,6 +104,13 @@ def main(argv=None) -> None:
         res = pipeline.v3_reference(json.loads(frozen.FROZEN_V3_PATH.read_text()))
         (pipeline.OUT / "v3" / "estimation_reference.json").write_text(
             json.dumps(res, indent=2, default=float) + "\n")
+        (pipeline.OUT / "v3" / "posthoc_2026_F5.json").write_text(
+            json.dumps(pipeline.posthoc_2026_f5(), indent=2, default=float) + "\n")
+        mk, st = pipeline.v3_insample_outputs()
+        mk.round(4).to_csv(pipeline.OUT / "v3" / "market_fear_v3_insample.csv")
+        num = st.select_dtypes("number").columns
+        st.assign(**st[num].round(4)).to_csv(pipeline.OUT / "v3" / "stock_fear_v3_insample.csv.gz",
+                                              index=False, compression="gzip")
     elif a.cmd == "download-prospective":
         frozen.committed_spec_hash(frozen.FROZEN_V3_PATH)   # nothing after 2026-11-23 before v3 is committed
         # overlap November 2026 so the loader can align the adjustment basis

@@ -67,7 +67,7 @@ def parameter_table(point: hmm.HMM, reps: list[hmm.HMM], level: float = 0.90) ->
 
     tab = {"s": ci(lambda m: m.emission.s), "A": ci(lambda m: m.A),
            "stationary": ci(lambda m: m.stationary),
-           "expected_duration": ci(lambda m: 1.0 / (1.0 - np.diag(m.A)))}
+           "expected_duration": ci(lambda m: 1.0 / (1.0 - np.diagonal(m.A, axis1=-2, axis2=-1)))}
     if point.emission.pi is not None:
         tab["pi"] = ci(lambda m: m.emission.pi)
     tab["level"] = level

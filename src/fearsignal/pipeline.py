@@ -439,13 +439,35 @@ def prospective(presented_sha256: str, rerun_reason: str | None = None) -> dict:
     Scores the first PROSPECTIVE_SESSIONS sessions after 2026-11-23 for v3,
     and re-reads v2 (frozen) and v1 (published) on the same sample.
     """
-    from .config import PROSPECTIVE_START
+    from .config import PREREGISTERED_SHA256 as PRE, PROSPECTIVE_START
 
     out = OUT / "prospective"
-    if (out / "prospective_results.json").exists() and not rerun_reason:
-        raise RuntimeError("the prospective read has already been made; pass a reason to repeat it")
+    log = out / "RUNLOG.md"
+    attempted = log.exists() and "started" in log.read_text()
+    if ((out / "prospective_results.json").exists() or attempted) and not rerun_reason:
+        raise RuntimeError("the prospective read has already been attempted; pass a reason to repeat it")
+    # every spec must be the committed, pre-registered one
+    if presented_sha256 != PRE["frozen_v3.json"]:
+        raise data.HoldoutLocked("presented hash is not the pre-registered v3 spec")
+    if frozen.committed_spec_hash() != PRE["frozen.json"]:
+        raise data.HoldoutLocked("v2 comparator spec differs from the pre-registered one")
+    chal_present = CHALLENGER_F5_PATH.exists()
+    if chal_present and frozen.committed_spec_hash(CHALLENGER_F5_PATH) != PRE["frozen_v3_challenger_F5.json"]:
+        raise data.HoldoutLocked("F5 challenger spec differs from the pre-registered one")
+    for name in ("dev", "holdout", "prospective"):
+        if not data.verify(name):
+            raise RuntimeError(f"data/raw/{name}.parquet does not match data/manifest_{name}.json")
     spec3 = json.loads(frozen.FROZEN_V3_PATH.read_text())
+    stamp = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M UTC")
+    out.mkdir(parents=True, exist_ok=True)
+    with open(log, "a") as fh:      # logged before any prospective bar is loaded
+        if fh.tell() == 0:
+            fh.write("# Prospective read log\n\n| when | event | frozen v3 sha256 | reason |\n|---|---|---|---|\n")
+        fh.write(f"| {stamp} | started | `{presented_sha256[:16]}…` | "
+                 f"{rerun_reason or 'the single pre-registered read'} |\n")
     panel = data.load_prospective_panel(presented_sha256)
+    if list(panel.tickers) != list(spec3["universe"]):
+        raise ValueError("prospective universe differs from the frozen v3 universe")
     feat = features.compute(panel)
     vxn = evaluate.load_vxn(data.RAW / "vxn_prospective.csv", dev_only=False)
     a3 = apply(spec3, feat)
@@ -461,24 +483,25 @@ def prospective(presented_sha256: str, rerun_reason: str | None = None) -> dict:
     # P-H1's pass rule (PREREGISTRATION_v3.md): lower bound of the 97.5% interval > 0.30
     ci975 = stats.corr_ci(a["s"], a["v"], "spearman", n_boot=2000, level=0.975)
     res["P_H1"] = {"d5_spearman_ci975": ci975, "pass": bool(ci975["lo"] > 0.30)}
+    # P-H1b against v1 under an unambiguous name (the shared _metrics key says "v2M")
+    res["P_H1b_v3_minus_v1"] = res["v3"]["vxn"]["H1b_d5_spearman_v2M_minus_v1legacy"]
+    res["P_H2_detail"] = validate.tail_calibration_detail(a3.sig, feat, mask)
     res["H4_recursive"] = validate.har_recursive(a3.sig, validate.basket_returns(feat), mask)
-    if CHALLENGER_F5_PATH.exists():
-        frozen.committed_spec_hash(CHALLENGER_F5_PATH)      # must be committed and clean
+    if chal_present:
         res["P_F5_challenger"] = challenger_comparison(
             spec3, json.loads(CHALLENGER_F5_PATH.read_text()), feat, mask, vxn)
     res["frozen_v3_sha256"] = presented_sha256
-    out.mkdir(parents=True, exist_ok=True)
+    res["data_manifest_sha256"] = {
+        n: json.loads((ROOT / "data" / f"manifest_{n}.json").read_text())["sha256_csv_6dp"]
+        for n in ("dev", "holdout", "prospective")}
     (out / "prospective_results.json").write_text(json.dumps(res, indent=2, default=float) + "\n")
     mk, st = signal_frames(a3.sig, a3.M_band, a3.Z_band, feat.obs, spec3["state_names"], a3.Mpct_band)
     mk.round(4).to_csv(out / "market_fear_v3.csv")
     num = st.select_dtypes("number").columns
     st.assign(**st[num].round(4)).to_csv(out / "stock_fear_v3.csv.gz", index=False, compression="gzip")
     stamp = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d %H:%M UTC")
-    log = out / "RUNLOG.md"
     with open(log, "a") as fh:
-        if fh.tell() == 0:
-            fh.write("# Prospective read log\n\n| when | frozen v3 sha256 | reason |\n|---|---|---|\n")
-        fh.write(f"| {stamp} | `{presented_sha256[:16]}…` | {rerun_reason or 'the single pre-registered read'} |\n")
+        fh.write(f"| {stamp} | completed | `{presented_sha256[:16]}…` | {res['v3']['last_day']} |\n")
     return res
 
 
@@ -541,3 +564,38 @@ def challenger_comparison(spec3: dict, chal: dict, feat: features.Features, mask
         out["market_condition_met"] = bool(diff["diff"] >= -se_d)
         out["claim_F5_better"] = bool(out["p_one_sided"] < 0.05 and out["market_condition_met"])
     return out
+
+
+def posthoc_2026_f5() -> dict:
+    """Labelled post-hoc 2026 diagnostic for F5, after its decision was final.
+
+    F5 fitted on dev (as in the walk-forward: n_random=2, seed=0) against v2's
+    frozen S1 on 2026: log-score gain and the market-layer difference.
+    """
+    v2 = frozen.load()
+    dev = features.compute(data.load_dev_panel()).obs
+    f5 = mdl.fit_stock_model(mdl.F5_SPEC, dev, n_random=2, seed=0)
+    feat = features.compute(data.load_holdout_panel(frozen.committed_spec_hash()))
+    mask = feat.obs.dates >= HOLDOUT_START
+    ll = challenger_comparison({"stock_model": v2["stock_model"], "dev_zero_rate": v2["dev_zero_rate"]},
+                               {"model": model_to_dict(f5)}, feat, mask)
+    vxn = evaluate.load_vxn(data.RAW / "vxn_full.csv", dev_only=False).reindex(feat.obs.dates).to_numpy()
+    bl = {k: mdl.compute_signal(m, feat.obs, None, None, v2["dev_zero_rate"]).breadth_L
+          for k, m in (("f5", f5), ("s1", model_from_dict(v2["stock_model"])))}
+    el = feat.obs.eligible.any(axis=1) & mask
+    a = validate._d5(bl["f5"], vxn, feat.obs.dates, el)
+    b = validate._d5(bl["s1"], vxn, feat.obs.dates, el)
+    j = a.index.intersection(b.index)
+    return {"label": "2026, spent holdout, post-hoc diagnostic for family F5 (decision already final: not adopted)",
+            "f5_fit_on_dev": {"converged": f5.converged, "A": f5.A.tolist(), "s": f5.emission.s.tolist()},
+            "log_score_gain_vs_v2_frozen_S1": ll,
+            "market_logit_breadth_d5_spearman_f5_minus_s1": stats.corr_diff_ci(
+                a.loc[j, "s"], b.loc[j, "s"], a.loc[j, "v"])}
+
+
+def v3_insample_outputs() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """v3's market and stock tables on its own estimation window (in-sample)."""
+    spec3 = json.loads(frozen.FROZEN_V3_PATH.read_text())
+    feat = features.compute(data.load_v3_estimation_panel())
+    ap = apply(spec3, feat)
+    return signal_frames(ap.sig, ap.M_band, ap.Z_band, feat.obs, spec3["state_names"], ap.Mpct_band)

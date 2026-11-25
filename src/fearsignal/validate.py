@@ -186,7 +186,7 @@ def har_recursive(sig: Signal, R: np.ndarray, mask: np.ndarray, start: int | Non
     f0 = np.full(len(y), np.nan)
     f1 = np.full(len(y), np.nan)
     for t in np.flatnonzero(mask & good):
-        rows = np.flatnonzero(good[: t - 4])            # s <= t - 5
+        rows = np.flatnonzero(good[: max(t - 4, 0)])   # s <= t - 5
         rows = rows[rows >= first]
         if len(rows) < 60:
             continue
@@ -223,7 +223,7 @@ def forward_returns(sig: Signal, R: np.ndarray, mask: np.ndarray, horizon: int =
     # reverse regression restricted to the scored days (regressor history may precede them)
     r1 = np.where(mask, lr, np.nan)
     hb = stats.hodrick_1b(r1, sig.M, horizon)
-    hi = ok & (sig.M >= 2.0)
+    hi = ok & (sig.M_pct >= 2.0)          # the alert event (M_pct); equals M >= 2 for v2
     return {"horizon": horizon, "n": res["n"], "slope_per_M": float(res["beta"][1]),
             "hodrick_1b_t": hb["t"], "hodrick_1b_p": hb["p"],
             "mean_fwd_all": float(fwd[ok].mean()),
@@ -253,3 +253,18 @@ def alerts(sig: Signal, M_lo: np.ndarray | None, vxn: pd.Series, dates: pd.Datet
     if M_lo is not None:
         out[f"conviction_M_lo_ge_{threshold}"] = summarise(np.nan_to_num(M_lo, nan=-9) >= threshold)
     return out
+
+
+def tail_calibration_detail(sig: Signal, feat: Features, mask: np.ndarray) -> dict:
+    """P-H2 companions: leave-one-day-out range of the calibration slope, and
+    its between-day and within-day parts (day-clustered s.e.)."""
+    y = tail_event(feat.obs, TAIL_THRESHOLD)
+    q = np.vstack([np.full((1, y.shape[1]), np.nan), sig.q_next[:-1]])
+    ok = np.isfinite(q) & np.isfinite(y) & mask[:, None]
+    day = np.broadcast_to(np.arange(len(y))[:, None], y.shape)[ok]
+    qv, yv = q[ok], y[ok]
+    slopes = np.array([stats.logistic_calibration(qv[day != d], yv[day != d])["slope"]
+                       for d in np.unique(day)])
+    return {"loo_slope_min": float(slopes.min()), "loo_slope_max": float(slopes.max()),
+            "loo_days_below_0.8": int((slopes < 0.8).sum()), "n_days": int(len(slopes)),
+            "within_between": stats.within_between_calibration(qv, yv, day)}

@@ -22,10 +22,19 @@ HOLDOUT_START = pd.Timestamp("2026-01-01")
 
 # v3 (docs/V3.md): the 2026 holdout is spent. v3 is re-estimated on everything
 # through V3_ESTIMATION_END and judged only on sessions after it, read once,
-# at exactly PROSPECTIVE_SESSIONS sessions (pre-registered power >= 0.89).
+# at exactly PROSPECTIVE_SESSIONS sessions (P-H1 power 0.83-0.95 at rho = 0.55
+# under the simulated processes; docs/PREREGISTRATION_v3.md).
 V3_ESTIMATION_END = pd.Timestamp("2026-11-23")
 PROSPECTIVE_START = pd.Timestamp("2026-11-24")
 PROSPECTIVE_SESSIONS = 400
+
+# The frozen specs named in docs/PREREGISTRATION_v3.md. The prospective read
+# refuses to run against anything else.
+PREREGISTERED_SHA256 = {
+    "frozen.json": "7be905b1633d28dbfef438d1d57cee0578266f674ab98b2556ca833015574ae5",
+    "frozen_v3.json": "c3804d1ffe9822ebc1d8c6408f2429cb68794a4cda38bd4c964d9a24965fd14a",
+    "frozen_v3_challenger_F5.json": "126c32c800066f727f9ea98469b42c1ebd518129e00f63df5cf641290b52c8cb",
+}
 
 # Observation construction (identical to the v1 starting point).
 SIGMA_WINDOW = 126          # sessions in the robust scale window, today excluded
