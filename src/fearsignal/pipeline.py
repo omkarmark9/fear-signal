@@ -458,6 +458,9 @@ def prospective(presented_sha256: str, rerun_reason: str | None = None) -> dict:
     b = validate._d5(a2.sig.M, v, feat.obs.dates, mask)
     j = a.index.intersection(b.index)
     res["H1b_v3_minus_v2"] = stats.corr_diff_ci(a.loc[j, "s"], b.loc[j, "s"], a.loc[j, "v"])
+    # P-H1's pass rule (PREREGISTRATION_v3.md): lower bound of the 97.5% interval > 0.30
+    ci975 = stats.corr_ci(a["s"], a["v"], "spearman", n_boot=2000, level=0.975)
+    res["P_H1"] = {"d5_spearman_ci975": ci975, "pass": bool(ci975["lo"] > 0.30)}
     res["H4_recursive"] = validate.har_recursive(a3.sig, validate.basket_returns(feat), mask)
     if CHALLENGER_F5_PATH.exists():
         frozen.committed_spec_hash(CHALLENGER_F5_PATH)      # must be committed and clean

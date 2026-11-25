@@ -12,7 +12,9 @@ the full sample below exists.
   - S1, re-estimated on 2023-01-03..2026-11-23: s = (0.960, 1.563, 3.760), converged; 200 of 200 bootstrap replicates converged.
   - Market index M = (logit breadth − μ)/σ, with μ = −0.301 and σ = 0.849.
   - Bands, alerts and conviction are defined on M_pct, the percentile score.
-* **Challenger:** `config/frozen_v3_challenger_F5.json` (family F5, persistence by shock type), fitted on the same window.
+* **Challenger:** `config/frozen_v3_challenger_F5.json`, SHA-256
+  `126c32c800066f727f9ea98469b42c1ebd518129e00f63df5cf641290b52c8cb`
+  (family F5, persistence by shock type), fitted on the same window.
 * **Comparators re-read on the same sample:** v2 frozen (`config/frozen.json`, `7be905b1…`) and v1 as published.
 * **Sample:** exactly the first **400 sessions after 2026-11-23** (expected to end near 2028-06-28). There is **one read**, with no interim looks, and a second read needs a logged reason (`outputs/prospective/RUNLOG.md`).
 * **Nothing is refit.** VXN is used only for validation. The VXN "elevated" threshold (24.67, the 80th percentile over 2023-07..2026-11) and the tail climatology (3.38%) are frozen.
@@ -25,7 +27,7 @@ session calendar.
 
 | id | claim | statistic | pass / claim rule |
 |---|---|---|---|
-| P-H1 | **v3's M measures fear** | Spearman ρ, 5-session changes of M vs VXN | pass if the lower 95% bound > 0.30 |
+| P-H1 | **v3's M measures fear** | Spearman ρ, 5-session changes of M vs VXN; stationary-bootstrap percentile intervals at 97.5% and 95% | pass if the **lower bound of the 97.5% interval** (its 1.25th percentile) > 0.30; the 95% interval is reported |
 | P-H1b | v3 vs v2-frozen and vs v1 | paired bootstrap ρ differences | reported; "better" claimed only if the lower bound > 0 (minimum detectable effect ≈ 0.05: the dev-scale gains of 0.02–0.04 are **not** detectable, as stated in advance) |
 | P-H2 | **q is calibrated and skilful** | Brier skill vs frozen climatology; logistic slope (day-clustered s.e.); leave-one-day-out range; within/between-day slopes | pass if BSS > 0 and the slope is in [0.8, 1.25] |
 | P-H2b | q beats an \|x\| EWMA | Brier skill | claimed if > 0 |
@@ -44,8 +46,50 @@ bootstrap CI width divided by 3.92.
 
 ## Operating characteristics, stated before the read
 
-*Filled from the dedicated simulation (see the commit that adds this
-section).*
+Simulated before any prospective data existed
+(`research/v3/operating-characteristics/`). There were three
+data-generating processes: a Gaussian AR(1) pair with the dev
+autocorrelations, and the 2026 and dev-OOS daily change pairs resampled by
+stationary bootstrap and tuned to the target correlation. The intervals use
+mean block 20 and 2000 resamples, as in the code.
+
+**P-H1, why the pass rule is the 97.5% interval.** With the originally
+drafted rule (95% interval, lower bound > 0.30) and a true ρ of exactly
+0.30 at N = 400, the false-pass rate is 4.0% (Gaussian), 2.2% (2026
+structure) and 5.0% (dev structure), against a nominal 2.5% (MC s.e.
+0.2–0.35 pp, 4000 replications). The block bootstrap understates the
+sampling s.d. by about 10% under heavy-tailed, volatility-clustered
+dependence. Interval coverage is 91–96%. The rule was therefore tightened
+before any data existed: with the 97.5% interval the boundary false-pass
+rate is 2.4% / 1.1% / 3.0%.
+
+| true ρ (N = 400) | P(pass), 97.5% rule: Gaussian / 2026 / dev | 95% rule, for reference |
+|---|---|---|
+| 0.30 (boundary) | 0.024 / 0.011 / 0.030 | 0.040 / 0.022 / 0.050 |
+| 0.45 | 0.49 / 0.54 / 0.39 | 0.59 / 0.63 / 0.49 |
+| 0.55 | 0.90 / 0.95 / 0.83 | 0.94 / 0.97 / 0.89 |
+| 0.60 | 0.98 / 0.995 / 0.97 | 0.99 / 0.998 / 0.98 |
+
+A pass is evidence that ρ > 0.30 at a one-sided error rate of at most
+about 3%. Power is above 0.8 for the ρ ≈ 0.55 seen on dev and in 2026.
+
+**P-H2.** These are upper bounds on P(pass), because Brier skill > 0 is also
+required. Under a normal approximation for the slope estimate:
+
+| s.e. assumption at N = 400 | true slope 1.0 | 0.9 | 0.8 | 0.7 |
+|---|---|---|---|---|
+| 2026 day-clustered s.e. scaled (0.089) | 0.99 | 0.87 | 0.50 | 0.13 |
+| dev day-clustered s.e. scaled (0.183) | 0.78 | 0.68 | 0.49 | 0.29 |
+
+A true slope at the 0.8 edge passes half the time, so a pass does not
+establish a slope ≥ 0.8. With the dev-sized s.e., even a perfectly
+calibrated forecast fails about 22% of the time. The slope, its s.e., the
+leave-one-day-out range, and the within-day and between-day slopes are
+reported with the verdict.
+
+**P-H1b, P-H4, P-H5 and P-F5** are underpowered by design (minimum
+detectable P-H1b difference ≈ 0.05; P-H4 needs about five years; P-H5 sees a
+handful of episodes). A null result there is not evidence of no effect.
 
 ## Verdict mapping
 
