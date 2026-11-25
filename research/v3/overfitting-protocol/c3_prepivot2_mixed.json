@@ -1,0 +1,8 @@
+{
+ "mixed": {
+  "raw_rej05": 0.045,
+  "cal_rej05": 0.035,
+  "adopt_1se_and_cal05": 0.035,
+  "cal_rej10": 0.095
+ }
+}

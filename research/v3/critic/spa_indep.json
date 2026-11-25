@@ -1,0 +1,22 @@
+[
+ {
+  "case": 0,
+  "mine_pc_boot": 0.1185,
+  "theirs_pc_boot": 0.10635
+ },
+ {
+  "case": 1,
+  "mine_pc_boot": 0.10625,
+  "theirs_pc_boot": 0.1032
+ },
+ {
+  "case": 2,
+  "mine_pc_boot": 0.0195,
+  "theirs_pc_boot": 0.019
+ },
+ {
+  "case": 3,
+  "mine_pc_boot": 0.48775,
+  "theirs_pc_boot": 0.5077
+ }
+]

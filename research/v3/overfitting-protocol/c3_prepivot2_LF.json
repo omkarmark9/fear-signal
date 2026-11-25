@@ -1,0 +1,8 @@
+{
+ "LF": {
+  "raw_rej05": 0.115,
+  "cal_rej05": 0.05,
+  "adopt_1se_and_cal05": 0.05,
+  "cal_rej10": 0.13
+ }
+}

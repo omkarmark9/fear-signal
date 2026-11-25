@@ -1,0 +1,38 @@
+{
+ "iid_normal_b10": {
+  "standard_rej05": 0.062,
+  "boot_t_rej05": 0.052,
+  "standard_rej10": 0.102,
+  "boot_t_rej10": 0.104
+ },
+ "ar03_normal_b10": {
+  "standard_rej05": 0.08,
+  "boot_t_rej05": 0.048,
+  "standard_rej10": 0.122,
+  "boot_t_rej10": 0.102
+ },
+ "ar03_t5_b10": {
+  "standard_rej05": 0.062,
+  "boot_t_rej05": 0.038,
+  "standard_rej10": 0.138,
+  "boot_t_rej10": 0.104
+ },
+ "ar03_t5_b10_rho0": {
+  "standard_rej05": 0.1,
+  "boot_t_rej05": 0.068,
+  "standard_rej10": 0.156,
+  "boot_t_rej10": 0.104
+ },
+ "power_ar03_t5_b10_plus3": {
+  "standard_rej05": 0.782,
+  "boot_t_rej05": 0.7,
+  "standard_rej10": 0.878,
+  "boot_t_rej10": 0.83
+ },
+ "power_ar03_t5_b10_plus3_rest_m3": {
+  "standard_rej05": 0.92,
+  "boot_t_rej05": 0.888,
+  "standard_rej10": 0.95,
+  "boot_t_rej10": 0.94
+ }
+}

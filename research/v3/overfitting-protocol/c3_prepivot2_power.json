@@ -1,0 +1,8 @@
+{
+ "power_S2_+0.003": {
+  "raw_rej05": 0.97,
+  "cal_rej05": 0.67,
+  "adopt_1se_and_cal05": 0.67,
+  "cal_rej10": 0.89
+ }
+}
