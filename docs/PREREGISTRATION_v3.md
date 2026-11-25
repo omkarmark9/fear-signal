@@ -22,6 +22,13 @@ the full sample below exists.
 * **Sample:** exactly the first **400 sessions after 2026-11-23** (expected to end near 2028-06-28). There is **one read**, with no interim looks, and a second read needs a logged reason (`outputs/prospective/RUNLOG.md`).
 * **Nothing is refit.** VXN is used only for validation. The VXN "elevated" threshold (24.67, the 80th percentile over 2023-07..2026-11) and the tail climatology (3.38%) are frozen.
 
+**Live monitoring is not the prospective test.** `fearsignal live` applies
+the frozen v3 spec to recent bars for display. Its bars go to a separate,
+git-ignored cache (`data/raw/live.parquet`) with no manifest. It reads no
+VXN, computes none of the statistics below, and cannot alter the
+hash-locked spec. The prospective read uses its own pull
+(`fearsignal download-prospective`).
+
 ## Hypotheses
 
 Stationary-bootstrap intervals use mean block 20 (60 for levels), 2000

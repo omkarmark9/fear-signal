@@ -12,6 +12,7 @@
     fearsignal v3-reference                 in-sample v3 metrics, signal history and F5 diagnostic
     fearsignal download-prospective --end-exclusive D   bars + VXN after 2026-11-23
     fearsignal prospective --sha256 HASH    the single pre-registered v3 read (400 sessions)
+    fearsignal live [--days N]              frozen v3 on the latest bars (display only)
     fearsignal latest [--top N]             latest market and stock readings
 """
 
@@ -57,6 +58,11 @@ def main(argv=None) -> None:
     pr = sub.add_parser("prospective")
     pr.add_argument("--sha256", required=True)
     pr.add_argument("--rerun-reason", default=None)
+    lv = sub.add_parser("live")
+    lv.add_argument("--days", type=int, default=7)
+    lv.add_argument("--top", type=int, default=10)
+    lv.add_argument("--end-exclusive", default=None,
+                    help="first session NOT to include (default: today's UTC date)")
     lt = sub.add_parser("latest")
     lt.add_argument("--top", type=int, default=15)
     a = ap.parse_args(argv)
@@ -118,6 +124,17 @@ def main(argv=None) -> None:
         _fred(a.end_exclusive, "vxn_prospective.csv")
     elif a.cmd == "prospective":
         pipeline.prospective(a.sha256, rerun_reason=a.rerun_reason)
+    elif a.cmd == "live":
+        import pandas as pd
+        end = a.end_exclusive or pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d")
+        data.download("live", "2026-11-02", end, manifest=False)
+        mk, st = pipeline.live(a.days)
+        cols = ["M", "M_lo", "M_hi", "M_pct", "F_M", "band", "high_conviction", "breadth", "n_stocks"]
+        print(mk[cols].round(2).to_string())
+        for d in mk.index[-1:]:
+            day = st[st["date"] == d].sort_values("Z", ascending=False).head(a.top)
+            print(f"\nmost afraid stocks on {d.date()}")
+            print(day[["ticker", "x", "Z", "Z_lo", "Z_hi", "band", "q_next", "I"]].round(2).to_string(index=False))
     elif a.cmd == "latest":
         import pandas as pd
         mk = pd.read_csv(pipeline.OUT / "holdout" / "market_fear.csv", index_col=0)

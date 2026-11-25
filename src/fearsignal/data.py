@@ -61,7 +61,8 @@ class Panel:
 
 # --------------------------------------------------------------------------- download
 
-def download(name: str, start: str, end_exclusive: str, tickers: list[str] | None = None) -> Path:
+def download(name: str, start: str, end_exclusive: str, tickers: list[str] | None = None,
+             manifest: bool = True) -> Path:
     """Download daily bars with yfinance and write ``data/raw/<name>.parquet``."""
     import yfinance as yf  # optional dependency
 
@@ -98,7 +99,8 @@ def download(name: str, start: str, end_exclusive: str, tickers: list[str] | Non
     RAW.mkdir(parents=True, exist_ok=True)
     path = RAW / f"{name}.parquet"
     long.to_parquet(path, index=False)
-    write_manifest(name, long)
+    if manifest:
+        write_manifest(name, long)
     return path
 
 
@@ -275,3 +277,26 @@ def load_prospective_panel(frozen_v3_sha256: str) -> Panel:
     if not panel.dates[panel.dates <= V3_ESTIMATION_END].equals(base.dates):
         raise ValueError("prospective panel's history does not match the v3 estimation calendar")
     return panel
+
+
+def load_live_panel() -> Panel:
+    """History through 2026-11-23 plus the bars in data/raw/live.parquet, for display.
+
+    Live monitoring applies the frozen v3 spec to sessions after the freeze.
+    It is not the prospective test: its bars live in their own git-ignored
+    cache, it computes no pre-registered statistic, and it cannot alter the
+    hash-locked spec. The earlier pulls are put on the live pull's price
+    basis through their November 2026 overlap.
+    """
+    from .frozen import committed_spec_hash
+
+    committed_spec_hash()   # v2's spec gates the 2026 file, as everywhere else
+    dev = pd.read_parquet(RAW / "dev.parquet")
+    hold = pd.read_parquet(RAW / "holdout.parquet")
+    live = pd.read_parquet(RAW / "live.parquet")
+    dev = align_adjustment_basis(dev[pd.to_datetime(dev["date"]) <= DEV_END], hold)
+    hold = hold[(pd.to_datetime(hold["date"]) >= HOLDOUT_START)
+                & (pd.to_datetime(hold["date"]) <= V3_ESTIMATION_END)]
+    past = align_adjustment_basis(pd.concat([dev, hold], ignore_index=True), live)
+    new = live[pd.to_datetime(live["date"]) > V3_ESTIMATION_END]
+    return to_panel(pd.concat([past, new], ignore_index=True))
