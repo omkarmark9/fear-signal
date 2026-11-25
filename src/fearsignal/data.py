@@ -186,27 +186,44 @@ def load_holdout_panel(frozen_spec_sha256: str) -> Panel:
 
 
 def align_adjustment_basis(dev: pd.DataFrame, hold: pd.DataFrame, tol: float = 1e-4) -> pd.DataFrame:
-    """Put the dev pull's adjusted closes on the holdout pull's basis.
+    """Put an earlier pull (``dev``) on a later pull's (``hold``) price basis.
 
-    The two pulls overlap in December 2025. Raw closes must agree; adjusted
-    closes may differ by one constant per ticker (a dividend paid between the
-    pulls rescales the vendor's whole history). That constant is estimated on
-    the overlap and applied, so the first 2026 return is not contaminated by a
-    change of basis. Any non-constant disagreement is an error.
+    The pulls must overlap. Between pulls the vendor rescales history by one
+    constant per ticker:
+    - a dividend rescales adjusted closes only;
+    - a split rescales close, low and adjusted close alike.
+    Both constants are estimated on the overlap, per ticker, and applied to the
+    earlier pull, so the first return after the overlap carries no change of
+    basis. Each must really be a constant on the overlap (spread <= tol), or
+    it is an error. A ticker that has rows on both sides of the overlap but
+    none inside it cannot be aligned, which is also an error, not a silent
+    mix of bases. When nothing happened between pulls both constants are
+    exactly 1 and the data are returned unchanged.
     """
     ov = dev.merge(hold, on=["date", "ticker"], suffixes=("_d", "_h"))
     if ov.empty:
-        raise ValueError("dev and holdout pulls do not overlap; cannot align adjustment basis")
-    raw_gap = (ov["close_h"] / ov["close_d"] - 1).abs().max()
-    if raw_gap > tol:
-        raise ValueError(f"raw closes disagree between pulls (max rel. gap {raw_gap:.2e})")
-    ratio = ov["adj_close_h"] / ov["adj_close_d"]
-    c = ratio.groupby(ov["ticker"]).median()
-    spread = (ratio / ov["ticker"].map(c) - 1).abs().max()
-    if spread > tol:
-        raise ValueError(f"adjusted closes differ by more than a constant (max {spread:.2e})")
+        raise ValueError("pulls do not overlap; cannot align the price basis")
+    tick = ov["ticker"]
+    k_raw = (ov["close_h"] / ov["close_d"]).groupby(tick).median()      # split factor
+    k_adj = (ov["adj_close_h"] / ov["adj_close_d"]).groupby(tick).median()
+    for name, col, k in (("raw closes", "close", k_raw), ("raw lows", "low", k_raw),
+                         ("adjusted closes", "adj_close", k_adj)):
+        spread = (ov[f"{col}_h"] / ov[f"{col}_d"] / tick.map(k) - 1).abs().max()
+        if spread > tol:
+            raise ValueError(f"{name} differ between pulls by more than a per-ticker constant "
+                             f"(max rel. spread {spread:.2e})")
+    # tickers with rows on both sides of the overlap must have overlap rows
+    lo, hi = pd.to_datetime(ov["date"]).min(), pd.to_datetime(ov["date"]).max()
+    before = set(dev.loc[pd.to_datetime(dev["date"]) < lo, "ticker"])
+    after = set(hold.loc[pd.to_datetime(hold["date"]) > hi, "ticker"])
+    unaligned = sorted((before & after) - set(k_raw.index))
+    if unaligned:
+        raise ValueError(f"no overlap rows to align {unaligned}; refusing to mix price bases")
     dev = dev.copy()
-    dev["adj_close"] = dev["adj_close"] * dev["ticker"].map(c).fillna(1.0)
+    kr = dev["ticker"].map(k_raw).fillna(1.0)
+    dev["close"] = dev["close"] * kr
+    dev["low"] = dev["low"] * kr
+    dev["adj_close"] = dev["adj_close"] * dev["ticker"].map(k_adj).fillna(1.0)
     return dev
 
 

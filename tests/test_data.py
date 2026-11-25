@@ -78,3 +78,33 @@ def test_holdout_file_is_unreadable_without_a_committed_frozen_spec(tmp_path, mo
         data.verify("holdout")
     with pytest.raises(config.HoldoutLocked):
         data.load_holdout_panel("0" * 64)
+
+
+def test_align_adjustment_basis_handles_a_split_between_pulls():
+    d = _long(pd.bdate_range("2025-12-01", "2025-12-31"), close=200.0, factor=0.98)
+    h = _long(pd.bdate_range("2025-12-01", "2026-01-09"), close=100.0, factor=0.97)  # 2:1 split + dividend
+    out = data.align_adjustment_basis(d, h)
+    np.testing.assert_allclose(out["close"], 100.0)
+    np.testing.assert_allclose(out["low"], 99.0)
+    np.testing.assert_allclose(out["adj_close"], 100.0 * 0.97)
+    # the adjusted low and returns are continuous across the pulls
+    both = pd.concat([out, h[h["date"] > "2025-12-31"]])
+    panel = data.to_panel(both)
+    r = np.diff(np.log(panel.adj_close[:, 0]))
+    np.testing.assert_allclose(r, 0.0, atol=1e-12)
+
+
+def test_align_adjustment_basis_refuses_a_ticker_missing_from_the_overlap():
+    d = pd.concat([_long(pd.bdate_range("2025-11-03", "2025-12-31")),
+                   _long(pd.bdate_range("2025-11-03", "2025-11-28"), ticker="AMD")])
+    h = pd.concat([_long(pd.bdate_range("2025-12-01", "2026-01-09")),
+                   _long(pd.bdate_range("2026-01-05", "2026-01-09"), ticker="AMD")])
+    with pytest.raises(ValueError, match="AMD"):
+        data.align_adjustment_basis(d, h)
+
+
+def test_align_adjustment_basis_is_identity_when_nothing_changed():
+    d = _long(pd.bdate_range("2025-12-01", "2025-12-31"))
+    h = _long(pd.bdate_range("2025-12-01", "2026-01-09"))
+    out = data.align_adjustment_basis(d, h)
+    pd.testing.assert_frame_equal(out.reset_index(drop=True), d.reset_index(drop=True))
