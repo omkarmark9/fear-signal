@@ -111,6 +111,10 @@ fearsignal download-holdout --end-exclusive YYYY-MM-DD
 fearsignal holdout --sha256 <sha256 of config/frozen.json>
 fearsignal latest                                # latest market and stock readings
 
+# live readings (display only; never the prospective test)
+fearsignal live --days 7                          # Yahoo bars, downloaded here
+fearsignal live --days 7 --source robinhood       # Robinhood bars saved by the agent (below)
+
 # v3
 fearsignal posthoc-2026                          # labelled diagnostic of the v3 market scale
 fearsignal freeze-v3                             # re-estimate on 2023-01-03..2026-11-23
@@ -118,6 +122,20 @@ fearsignal v3-reference                          # in-sample v3 metrics (referen
 fearsignal download-prospective --end-exclusive YYYY-MM-DD   # only after v3 is committed
 fearsignal prospective --sha256 <sha256 of config/frozen_v3.json>  # once, at 400 sessions
 ```
+
+**Robinhood as the live price source.** The pipeline cannot call the
+Robinhood connector itself, so the agent does. It calls
+`get_equity_historicals` for the 134 tickers (interval `day`,
+`adjustment_type` `all`, starting a few sessions before the last frozen
+date) and saves the JSON results unchanged in `data/raw/robinhood/`, which
+is git-ignored. `--source robinhood` then:
+- scales those bars onto the frozen history per ticker, checking that the
+  scale is constant across the overlap (closes agree within 0.2%);
+- fills bars the Yahoo pull is missing or broken on;
+- uses Robinhood for every completed session after 2026-11-23.
+
+A session still in progress has no Robinhood daily bar. A newer partial
+Yahoo bar is then shown as provisional.
 
 Outputs: `outputs/holdout/market_fear.csv` (daily M, band, breadth,
 legacy M), `outputs/holdout/stock_fear.csv.gz` (per stock-day x, Z, band, F,

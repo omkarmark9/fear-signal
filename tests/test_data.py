@@ -116,3 +116,43 @@ def test_align_adjustment_basis_refuses_an_all_nan_overlap():
     h.loc[pd.to_datetime(h["date"]) <= "2025-12-31", "close"] = np.nan
     with pytest.raises(ValueError, match="NVDA"):
         data.align_adjustment_basis(d, h)
+
+
+def _rh_json(tmp_path, bars_by_symbol, name="b.json"):
+    import json as _json
+    doc = {"data": {"results": [
+        {"symbol": s, "interval": "day", "bars": [
+            {"begins_at": f"{d}T00:00:00Z", "close_price": f"{c:.6f}", "low_price": f"{lo:.6f}",
+             **({"interpolated": True} if interp else {})}
+            for d, c, lo, interp in bars]}
+        for s, bars in bars_by_symbol.items()]}}
+    p = tmp_path / name
+    p.write_text(_json.dumps(doc))
+    return p
+
+
+def test_robinhood_long_parses_and_skips_interpolated(tmp_path):
+    p = _rh_json(tmp_path, {"NVDA": [("2026-11-23", 100.0, 98.0, False), ("2026-11-24", 99.0, 97.0, True)]})
+    df = data.robinhood_long([p])
+    assert len(df) == 1 and df.loc[0, "close"] == df.loc[0, "adj_close"] == 100.0 and df.loc[0, "low"] == 98.0
+
+
+def test_stitch_robinhood_scales_fills_and_refuses(tmp_path):
+    past = _long(pd.bdate_range("2026-11-16", "2026-11-23"), close=100.0, factor=0.98)
+    past.loc[past["date"] == pd.Timestamp("2026-11-20"), "close"] = np.nan        # broken vendor bar
+    # the other vendor's basis is half (e.g. after a 2:1 split), fully adjusted
+    rh = pd.DataFrame({"date": pd.bdate_range("2026-11-16", "2026-11-24"), "ticker": "NVDA",
+                       "adj_close": 49.0, "close": 49.0, "low": 48.0})
+    merged, rep = data.stitch_robinhood(past, rh, start_after="2026-11-23")
+    m = merged.set_index("date")
+    np.testing.assert_allclose(m.loc["2026-11-24", "adj_close"], 98.0)        # scaled to past basis
+    np.testing.assert_allclose(m.loc["2026-11-24", "low"], 96.0)
+    np.testing.assert_allclose(m.loc["2026-11-20", "close"], 98.0)            # broken bar filled
+    assert rep["history_bars_filled"] == ["NVDA 2026-11-20"] and rep["new_sessions"] == ["2026-11-24"]
+    bad = rh.copy()
+    bad.loc[2, "adj_close"] = bad.loc[2, "close"] = 55.0                      # non-constant ratio
+    with pytest.raises(ValueError, match="more than a constant"):
+        data.stitch_robinhood(past, bad, start_after="2026-11-23")
+    other = rh.assign(ticker="AMD")                                           # no overlap at all
+    with pytest.raises(ValueError, match="AMD"):
+        data.stitch_robinhood(past, pd.concat([rh, other]), start_after="2026-11-23")

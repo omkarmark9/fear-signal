@@ -63,6 +63,9 @@ def main(argv=None) -> None:
     lv.add_argument("--top", type=int, default=10)
     lv.add_argument("--end-exclusive", default=None,
                     help="first session NOT to include (default: today's UTC date)")
+    lv.add_argument("--source", choices=["yahoo", "robinhood"], default="yahoo",
+                    help="robinhood: completed sessions from connector bars saved in "
+                         "data/raw/robinhood/*.json (no download here)")
     lt = sub.add_parser("latest")
     lt.add_argument("--top", type=int, default=15)
     a = ap.parse_args(argv)
@@ -126,9 +129,12 @@ def main(argv=None) -> None:
         pipeline.prospective(a.sha256, rerun_reason=a.rerun_reason)
     elif a.cmd == "live":
         import pandas as pd
-        end = a.end_exclusive or pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d")
-        data.download("live", "2026-11-02", end, manifest=False)
-        mk, st = pipeline.live(a.days)
+        if a.source == "yahoo" or a.end_exclusive:
+            end = a.end_exclusive or pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d")
+            data.download("live", "2026-11-02", end, manifest=False)
+        mk, st, rep = pipeline.live(a.days, source=a.source, with_report=True)
+        print("data:", {k: v for k, v in rep.items() if k != "history_bars_filled"},
+              "| history bars filled:", rep.get("history_bars_filled", []))
         cols = ["M", "M_lo", "M_hi", "M_pct", "F_M", "band", "high_conviction", "breadth", "n_stocks"]
         print(mk[cols].round(2).to_string())
         for d in mk.index[-1:]:

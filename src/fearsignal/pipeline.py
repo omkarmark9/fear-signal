@@ -602,22 +602,24 @@ def v3_insample_outputs() -> tuple[pd.DataFrame, pd.DataFrame]:
     return signal_frames(ap.sig, ap.M_band, ap.Z_band, feat.obs, spec3["state_names"], ap.Mpct_band)
 
 
-def live(n_days: int = 7) -> tuple[pd.DataFrame, pd.DataFrame]:
+def live(n_days: int = 7, source: str = "yahoo", with_report: bool = False):
     """Frozen v3 applied to the latest bars (display only; nothing is fitted or tested).
 
     Returns the market table and the stock table for the last ``n_days``
-    sessions. Sessions after 2026-11-23 are out-of-sample for v3.
+    sessions (and the data report with ``with_report``). Sessions after
+    2026-11-23 are out-of-sample for v3.
     """
     from .config import PREREGISTERED_SHA256 as PRE
 
     if frozen.committed_spec_hash(frozen.FROZEN_V3_PATH) != PRE["frozen_v3.json"]:
         raise data.HoldoutLocked("v3 spec is not the committed, pre-registered one")
     spec3 = json.loads(frozen.FROZEN_V3_PATH.read_text())
-    panel = data.load_live_panel()
+    panel, report = data.live_panel(source)
     if list(panel.tickers) != list(spec3["universe"]):
         raise ValueError("live universe differs from the frozen v3 universe")
     feat = features.compute(panel)
     ap = apply(spec3, feat)
     mk, st = signal_frames(ap.sig, ap.M_band, ap.Z_band, feat.obs, spec3["state_names"], ap.Mpct_band)
     days = mk.index[-n_days:]
-    return mk.loc[days], st[st["date"].isin(days)]
+    out = (mk.loc[days], st[st["date"].isin(days)])
+    return out + (report,) if with_report else out

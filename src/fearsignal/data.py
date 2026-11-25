@@ -279,24 +279,144 @@ def load_prospective_panel(frozen_v3_sha256: str) -> Panel:
     return panel
 
 
-def load_live_panel() -> Panel:
-    """History through 2026-11-23 plus the bars in data/raw/live.parquet, for display.
-
-    Live monitoring applies the frozen v3 spec to sessions after the freeze.
-    It is not the prospective test: its bars live in their own git-ignored
-    cache, it computes no pre-registered statistic, and it cannot alter the
-    hash-locked spec. The earlier pulls are put on the live pull's price
-    basis through their November 2026 overlap.
-    """
+def _frozen_history() -> pd.DataFrame:
+    """Yahoo dev + holdout bars through 2026-11-23, on the holdout pull's basis."""
     from .frozen import committed_spec_hash
 
     committed_spec_hash()   # v2's spec gates the 2026 file, as everywhere else
     dev = pd.read_parquet(RAW / "dev.parquet")
     hold = pd.read_parquet(RAW / "holdout.parquet")
-    live = pd.read_parquet(RAW / "live.parquet")
     dev = align_adjustment_basis(dev[pd.to_datetime(dev["date"]) <= DEV_END], hold)
     hold = hold[(pd.to_datetime(hold["date"]) >= HOLDOUT_START)
                 & (pd.to_datetime(hold["date"]) <= V3_ESTIMATION_END)]
-    past = align_adjustment_basis(pd.concat([dev, hold], ignore_index=True), live)
-    new = live[pd.to_datetime(live["date"]) > V3_ESTIMATION_END]
-    return to_panel(pd.concat([past, new], ignore_index=True))
+    return pd.concat([dev, hold], ignore_index=True)
+
+
+def load_live_panel(source: str = "yahoo") -> Panel:
+    """History through 2026-11-23 plus newer bars, for display (see live_panel)."""
+    return live_panel(source)[0]
+
+
+def live_panel(source: str = "yahoo") -> tuple[Panel, dict]:
+    """History through 2026-11-23 plus newer bars, for display, with a data report.
+
+    Live monitoring applies the frozen v3 spec to sessions after the freeze.
+    It is not the prospective test: its bars live in their own git-ignored
+    cache, it computes no pre-registered statistic, and it cannot alter the
+    hash-locked spec.
+
+    source="yahoo": newer bars from data/raw/live.parquet. The earlier pulls
+    are put on its price basis through their November 2026 overlap.
+    source="robinhood": completed sessions from the Robinhood connector's
+    daily bars in data/raw/robinhood/*.json (fetched by the agent, since only
+    it can call the connector). They are scaled onto the frozen history and
+    also fill frozen-history bars the Yahoo pull is missing or broken on
+    (stitch_robinhood). A session still in progress is not in Robinhood's
+    daily bars; if data/raw/live.parquet has a newer, partial Yahoo bar it is
+    appended as a provisional reading, scaled the same way.
+    """
+    past = _frozen_history()
+    if source == "yahoo":
+        live = pd.read_parquet(RAW / "live.parquet")
+        past = align_adjustment_basis(past, live)
+        new = live[pd.to_datetime(live["date"]) > V3_ESTIMATION_END]
+        return to_panel(pd.concat([past, new], ignore_index=True)), {"source": "yahoo"}
+    if source != "robinhood":
+        raise ValueError(f"unknown source {source!r}")
+    rh = robinhood_long(sorted((RAW / "robinhood").glob("*.json")))
+    merged, report = stitch_robinhood(past, rh)
+    report["source"] = "robinhood"
+    last_rh = pd.to_datetime(rh["date"]).max()
+    report["last_robinhood_session"] = str(last_rh.date())
+    live_path = RAW / "live.parquet"
+    if live_path.exists():
+        live = pd.read_parquet(live_path)
+        dates = pd.to_datetime(live["date"])
+        partial = live[dates > last_rh]
+        if len(partial):
+            merged, prov = stitch_robinhood(merged, live[dates <= last_rh], fill_history=False,
+                                            start_after=last_rh, extra=partial)
+            report["provisional_session"] = str(pd.to_datetime(partial["date"]).max().date())
+            report["provisional_max_close_spread_vs_robinhood"] = prov["max_close_spread"]
+    return to_panel(merged), report
+
+
+def robinhood_long(paths) -> pd.DataFrame:
+    """Daily bars saved from the Robinhood connector (adjustment_type="all") as long rows.
+
+    The bars are fully split- and dividend-adjusted, so close and low share one
+    basis: adj_close = close = close_price and low = low_price. Gap-fill
+    (interpolated) bars are dropped. If several files hold the same
+    (ticker, date), the last file wins.
+    """
+    rows = []
+    for path in paths:
+        doc = json.loads(Path(path).read_text())
+        for res in doc["data"]["results"]:
+            for b in res.get("bars", []):
+                if b.get("interpolated"):
+                    continue
+                c, lo = float(b["close_price"]), float(b["low_price"])
+                rows.append((pd.Timestamp(b["begins_at"][:10]), res["symbol"], c, c, lo))
+    df = pd.DataFrame(rows, columns=["date", "ticker", "adj_close", "close", "low"])
+    return df.drop_duplicates(["ticker", "date"], keep="last").reset_index(drop=True)
+
+
+def stitch_robinhood(past: pd.DataFrame, rh: pd.DataFrame, tol: float = 2e-3,
+                     fill_history: bool = True, start_after=V3_ESTIMATION_END,
+                     extra: pd.DataFrame | None = None) -> tuple[pd.DataFrame, dict]:
+    """Scale another vendor's bars onto ``past``'s basis and merge them.
+
+    Per ticker: c = median(past adj_close / other close) over the overlap
+    dates, which must agree with c within ``tol`` on every overlap date
+    (vendors print the same exchange closes; an adjustment difference is a
+    constant). The other vendor's rows are scaled by c on close, adjusted close
+    and low, so close and low stay on one basis. They are used:
+    - for every date after ``start_after``;
+    - with fill_history, also for earlier dates where ``past`` has no usable
+      bar (missing, or not all fields positive and finite).
+    ``extra`` rows, which are not part of the overlap, are scaled with the same
+    c and appended.
+    Raises if a ticker that needs the other vendor's rows has no overlap.
+    """
+    past = past.copy()
+    past["date"] = pd.to_datetime(past["date"])
+    rh = rh.copy()
+    rh["date"] = pd.to_datetime(rh["date"])
+    good = np.all([np.isfinite(past[f]) & (past[f] > 0) for f in FIELDS], axis=0)
+    ov = past[good].merge(rh, on=["date", "ticker"], suffixes=("_p", "_o"))
+    ratio = ov["adj_close_p"] / ov["adj_close_o"]
+    c = ratio.groupby(ov["ticker"]).median()
+    spread = (ratio / ov["ticker"].map(c) - 1).abs()
+    worst = spread.groupby(ov["ticker"]).max()
+    if (worst > tol).any():
+        bad = worst[worst > tol].round(4).to_dict()
+        raise ValueError(f"closes differ between vendors by more than a constant: {bad}")
+    adj_low_p = ov["low_p"] * ov["adj_close_p"] / ov["close_p"]
+    low_gap = (adj_low_p / (ov["low_o"] * ov["ticker"].map(c)) - 1).abs()
+    use = rh["date"] > pd.Timestamp(start_after)
+    if fill_history:
+        have = set(zip(past.loc[good, "ticker"], past.loc[good, "date"]))
+        use |= ~pd.Series([(t, d) in have for t, d in zip(rh["ticker"], rh["date"])], index=rh.index)
+    take = rh[use]
+    if extra is not None:
+        e = extra.copy()
+        e["date"] = pd.to_datetime(e["date"])
+        take = pd.concat([take, e], ignore_index=True)
+    missing = sorted(set(take["ticker"]) - set(c.index))
+    if missing:
+        raise ValueError(f"no overlap to scale {missing}; refusing to mix price bases")
+    k = take["ticker"].map(c)
+    take = take.assign(adj_close=take["adj_close"] * k, close=take["adj_close"] * k,
+                       low=take["low"] * take["adj_close"] / take["close"] * k)
+    filled = take[take["date"] <= pd.Timestamp(start_after)]
+    keep = ~pd.Series(list(zip(past["ticker"], past["date"]))).isin(
+        set(zip(take["ticker"], take["date"]))).to_numpy()
+    merged = pd.concat([past[keep], take[past.columns]], ignore_index=True)
+    report = {"tickers_scaled": int(len(c)), "overlap_rows": int(len(ov)),
+              "max_close_spread": float(worst.max()) if len(worst) else None,
+              "median_low_gap": float(low_gap.median()) if len(low_gap) else None,
+              "max_low_gap": float(low_gap.max()) if len(low_gap) else None,
+              "history_bars_filled": sorted(f"{t} {d.date()}" for t, d in zip(filled["ticker"], filled["date"])),
+              "new_sessions": sorted({str(d.date()) for d in take["date"] if d > pd.Timestamp(start_after)})}
+    return merged, report
