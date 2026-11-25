@@ -134,3 +134,11 @@ def test_tail_calibration_detail_brackets_the_full_slope():
     full = validate.tail_forecast(sig, feat, mask, 0.03)["calibration"]["slope"]
     assert det["loo_slope_min"] <= full <= det["loo_slope_max"]
     assert det["n_days"] > 100
+
+
+def test_prospective_refuses_when_the_preregistered_challenger_is_missing(tmp_path, monkeypatch):
+    from fearsignal import config as cfg, data, pipeline
+    monkeypatch.setattr(pipeline, "OUT", tmp_path)
+    monkeypatch.setattr(pipeline, "CHALLENGER_F5_PATH", tmp_path / "missing.json")
+    with pytest.raises(data.HoldoutLocked):
+        pipeline.prospective(cfg.PREREGISTERED_SHA256["frozen_v3.json"])

@@ -84,7 +84,10 @@ and resumed from its transcript.
   within/between calibration split is right.
 - The P-H1 tightening's code matches the pre-registration, and its tables
   match the simulation.
-- F5's declaration commit precedes its machinery and its result.
+- F5's declaration commit precedes its machinery and its result. Commit
+  order alone does not prove the declaration came first in wall-clock time,
+  because the whole round was committed within about 35 minutes, and no
+  file-time check exists for F5 as there is for the other families.
 
 | # | severity | finding | resolution |
 |---|---|---|---|
@@ -98,3 +101,18 @@ and resumed from its transcript.
 | V8 | minor | the pre-registration header no longer literally true after its amendment; the bootstrap s.d. bias misattributed; the power comment in `config.py` out of date | corrected |
 | V9 | minor | two v3 outputs had no committed generator; `frozen_v3.json` predates the `persistence_by_shock` field | generators added (`fearsignal v3-reference`); reproducibility note in V3.md |
 | V10 | latent | `bootstrap.parameter_table` failed on stacked transitions; `good[: t-4]` could wrap for t < 4 | fixed |
+
+**Delta check of the fixes (`07f7739..981c37d`).** Every finding is
+resolved. A synthetic prospective pull (no split; a 2:1 split plus a
+dividend; a ticker missing from the overlap) behaves correctly through
+`load_prospective_panel`. `prospective()` ran end to end on synthetic data:
+- a wrong hash is refused before anything is logged;
+- a crash after "started" blocks a retry without a reason;
+- a second read is refused even after deleting the results file.
+
+v2's outputs and all v3 artifacts still reproduce exactly. The check left
+three residuals, closed in the following commit:
+- a ticker whose overlap closes are all NaN got a NaN factor and slipped
+  past the alignment check;
+- a missing challenger file silently skipped P-F5;
+- the commit-order caveat above.

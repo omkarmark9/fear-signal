@@ -216,7 +216,9 @@ def align_adjustment_basis(dev: pd.DataFrame, hold: pd.DataFrame, tol: float = 1
     lo, hi = pd.to_datetime(ov["date"]).min(), pd.to_datetime(ov["date"]).max()
     before = set(dev.loc[pd.to_datetime(dev["date"]) < lo, "ticker"])
     after = set(hold.loc[pd.to_datetime(hold["date"]) > hi, "ticker"])
-    unaligned = sorted((before & after) - set(k_raw.index))
+    # a factor that is NaN (e.g. every overlap close missing) does not count as aligned
+    aligned = set(k_raw.dropna().index) & set(k_adj.dropna().index)
+    unaligned = sorted((before & after) - aligned)
     if unaligned:
         raise ValueError(f"no overlap rows to align {unaligned}; refusing to mix price bases")
     dev = dev.copy()

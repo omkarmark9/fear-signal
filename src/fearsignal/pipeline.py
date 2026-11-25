@@ -451,9 +451,10 @@ def prospective(presented_sha256: str, rerun_reason: str | None = None) -> dict:
         raise data.HoldoutLocked("presented hash is not the pre-registered v3 spec")
     if frozen.committed_spec_hash() != PRE["frozen.json"]:
         raise data.HoldoutLocked("v2 comparator spec differs from the pre-registered one")
-    chal_present = CHALLENGER_F5_PATH.exists()
-    if chal_present and frozen.committed_spec_hash(CHALLENGER_F5_PATH) != PRE["frozen_v3_challenger_F5.json"]:
+    # P-F5 is pre-registered, so a missing challenger blocks the read (committed_spec_hash raises)
+    if frozen.committed_spec_hash(CHALLENGER_F5_PATH) != PRE["frozen_v3_challenger_F5.json"]:
         raise data.HoldoutLocked("F5 challenger spec differs from the pre-registered one")
+    chal_present = True
     for name in ("dev", "holdout", "prospective"):
         if not data.verify(name):
             raise RuntimeError(f"data/raw/{name}.parquet does not match data/manifest_{name}.json")

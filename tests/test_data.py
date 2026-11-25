@@ -108,3 +108,11 @@ def test_align_adjustment_basis_is_identity_when_nothing_changed():
     h = _long(pd.bdate_range("2025-12-01", "2026-01-09"))
     out = data.align_adjustment_basis(d, h)
     pd.testing.assert_frame_equal(out.reset_index(drop=True), d.reset_index(drop=True))
+
+
+def test_align_adjustment_basis_refuses_an_all_nan_overlap():
+    d = _long(pd.bdate_range("2025-11-03", "2025-12-31"))
+    h = _long(pd.bdate_range("2025-12-01", "2026-01-09"))
+    h.loc[pd.to_datetime(h["date"]) <= "2025-12-31", "close"] = np.nan
+    with pytest.raises(ValueError, match="NVDA"):
+        data.align_adjustment_basis(d, h)
