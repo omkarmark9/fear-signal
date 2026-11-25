@@ -13,6 +13,8 @@
     fearsignal download-prospective --end-exclusive D   bars + VXN after 2026-11-23
     fearsignal prospective --sha256 HASH    the single pre-registered v3 read (400 sessions)
     fearsignal live [--days N]              frozen v3 on the latest bars (display only)
+    fearsignal forecast --target D          next-session forecasts, saved before the session
+    fearsignal score-forecast --target D    score a saved forecast; append to the scoreboard
     fearsignal latest [--top N]             latest market and stock readings
 """
 
@@ -66,6 +68,12 @@ def main(argv=None) -> None:
     lv.add_argument("--source", choices=["yahoo", "robinhood"], default="yahoo",
                     help="robinhood: completed sessions from connector bars saved in "
                          "data/raw/robinhood/*.json (no download here)")
+    fc = sub.add_parser("forecast")
+    fc.add_argument("--target", required=True)
+    fc.add_argument("--source", choices=["yahoo", "robinhood"], default="robinhood")
+    sf = sub.add_parser("score-forecast")
+    sf.add_argument("--target", required=True)
+    sf.add_argument("--source", choices=["yahoo", "robinhood"], default="robinhood")
     lt = sub.add_parser("latest")
     lt.add_argument("--top", type=int, default=15)
     a = ap.parse_args(argv)
@@ -141,6 +149,28 @@ def main(argv=None) -> None:
             day = st[st["date"] == d].sort_values("Z", ascending=False).head(a.top)
             print(f"\nmost afraid stocks on {d.date()}")
             print(day[["ticker", "x", "Z", "Z_lo", "Z_hi", "band", "q_next", "I"]].round(2).to_string(index=False))
+    elif a.cmd == "forecast":
+        out = pipeline.OUT / "live"
+        out.mkdir(parents=True, exist_ok=True)
+        path = out / f"forecast_{a.target}.json"
+        if path.exists():
+            raise SystemExit(f"{path} exists; a forecast is written once, before its session")
+        path.write_text(json.dumps(pipeline.live_forecast(a.target, a.source), indent=2, default=float) + "\n")
+        print("wrote", path)
+    elif a.cmd == "score-forecast":
+        out = pipeline.OUT / "live"
+        fcd = json.loads((out / f"forecast_{a.target}.json").read_text())
+        res = pipeline.live_score(fcd, a.source)
+        (out / f"score_{a.target}.json").write_text(json.dumps(res, indent=2, default=float) + "\n")
+        board = out / "SCOREBOARD.md"
+        new = not board.exists()
+        with open(board, "a") as fh:
+            if new:
+                fh.write("# Live forecast scoreboard\n\n| session | count (90% range) | M_pct (90% range) | Brier model / clim | flagged |\n|---|---|---|---|---|\n")
+            fh.write(f"| {res['target_session']} | {res['realized_count_ge_3sigma']} ({res['count_range_90'][0]:.0f}-{res['count_range_90'][1]:.0f}) | "
+                     f"{res['realized_m_pct']:.2f} ({res['m_pct_range_90'][0]:.2f}-{res['m_pct_range_90'][1]:.2f}) | "
+                     f"{res['brier_model']:.4f} / {res['brier_climatology']:.4f} | {'yes' if res['flagged'] else 'no'} |\n")
+        print(json.dumps(res, indent=2, default=float))
     elif a.cmd == "latest":
         import pandas as pd
         mk = pd.read_csv(pipeline.OUT / "holdout" / "market_fear.csv", index_col=0)

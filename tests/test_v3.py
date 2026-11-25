@@ -142,3 +142,27 @@ def test_prospective_refuses_when_the_preregistered_challenger_is_missing(tmp_pa
     monkeypatch.setattr(pipeline, "CHALLENGER_F5_PATH", tmp_path / "missing.json")
     with pytest.raises(data.HoldoutLocked):
         pipeline.prospective(cfg.PREREGISTERED_SHA256["frozen_v3.json"])
+
+
+def test_forecast_ranges_and_flags():
+    from fearsignal import forecast
+    idx = pd.bdate_range("2024-01-01", periods=300)
+    rng = np.random.default_rng(3)
+    counts = pd.DataFrame({"pred": rng.uniform(2, 12, 300), "real": rng.poisson(5, 300)}, index=idx)
+    c = forecast.count_forecast(8.0, counts)
+    sim = counts[(counts.pred >= 6) & (counts.pred <= 10)]
+    assert c["similar_days"] == len(sim)
+    assert c["realized_on_similar_days"]["q50"] == float(np.quantile(sim.real, 0.5))
+    mp = pd.Series(np.sin(np.arange(300) / 9) * 2 + 1, index=idx)
+    m = forecast.market_forecast(2.0, mp)
+    assert abs(sum(m["next_band_probabilities"].values()) - 1) < 1e-9
+    # scoring: a realized count inside / outside the 90% range
+    fc = {"target_session": "2024-06-03", "count_ge_3sigma": {"model_mean": 8.0, "realized_on_similar_days":
+          {"q05": 0.0, "q95": 10.0}}, "market": {"next_m_pct": {"q05": 1.0, "q95": 3.0}},
+          "stocks_q_next": {"A": 0.5, "B": 0.1}}
+    st = pd.DataFrame({"date": pd.Timestamp("2024-06-03"), "ticker": ["A", "B"], "x": [3.5, 0.2]})
+    mk = pd.DataFrame({"M_pct": [2.0]}, index=[pd.Timestamp("2024-06-03")])
+    r = forecast.score(fc, mk, st)
+    assert r["realized_count_ge_3sigma"] == 1 and not r["flagged"] and r["stocks_hit"] == ["A"]
+    mk2 = pd.DataFrame({"M_pct": [3.5]}, index=[pd.Timestamp("2024-06-03")])
+    assert forecast.score(fc, mk2, st)["flags"]["market_outside_90"]

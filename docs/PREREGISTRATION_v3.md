@@ -29,6 +29,13 @@ VXN, computes none of the statistics below, and cannot alter the
 hash-locked spec. The prospective read uses its own pull
 (`fearsignal download-prospective`).
 
+**Live forecast scoreboard (added 2026-11-25, before any of its forecasts
+was scored).** `docs/LIVE.md` scores next-session forecasts one session at a
+time. That is an interim look at prospective sessions. It cannot affect the
+read: N is fixed at 400, v3 is hash-locked, and any course correction
+becomes a separate version judged on sessions after its own freeze. It
+computes none of the statistics above.
+
 ## Hypotheses
 
 Stationary-bootstrap intervals use mean block 20 (60 for levels), 2000

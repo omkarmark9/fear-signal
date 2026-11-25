@@ -623,3 +623,32 @@ def live(n_days: int = 7, source: str = "yahoo", with_report: bool = False):
     days = mk.index[-n_days:]
     out = (mk.loc[days], st[st["date"].isin(days)])
     return out + (report,) if with_report else out
+
+
+def _live_state(source: str):
+    from .config import PREREGISTERED_SHA256 as PRE
+
+    if frozen.committed_spec_hash(frozen.FROZEN_V3_PATH) != PRE["frozen_v3.json"]:
+        raise data.HoldoutLocked("v3 spec is not the committed, pre-registered one")
+    spec3 = json.loads(frozen.FROZEN_V3_PATH.read_text())
+    panel, report = data.live_panel(source)
+    feat = features.compute(panel)
+    ap = apply(spec3, feat)
+    mk, st = signal_frames(ap.sig, ap.M_band, ap.Z_band, feat.obs, spec3["state_names"], ap.Mpct_band)
+    return mk, st, ap.sig, feat, report
+
+
+def live_forecast(target: str, source: str = "robinhood") -> dict:
+    """Forecasts for ``target`` from the latest closed session (see forecast.py)."""
+    from . import forecast
+
+    mk, st, sig, feat, report = _live_state(source)
+    rep = {k: v for k, v in report.items() if k != "history_bars_filled"}
+    return forecast.make(mk, st, sig, validate.basket_returns(feat), target, rep)
+
+
+def live_score(fc: dict, source: str = "robinhood") -> dict:
+    from . import forecast
+
+    mk, st, _, _, _ = _live_state(source)
+    return forecast.score(fc, mk, st)
