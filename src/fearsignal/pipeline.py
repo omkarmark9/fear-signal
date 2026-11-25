@@ -18,6 +18,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy import stats as sp_stats
 
 from . import bootstrap, data, evaluate, features, frozen, hmm, model as mdl, scoring, stats, validate
 from .config import DEV_END, ERA_START, HOLDOUT_START, STATE_NAMES
@@ -458,6 +459,10 @@ def prospective(presented_sha256: str, rerun_reason: str | None = None) -> dict:
     j = a.index.intersection(b.index)
     res["H1b_v3_minus_v2"] = stats.corr_diff_ci(a.loc[j, "s"], b.loc[j, "s"], a.loc[j, "v"])
     res["H4_recursive"] = validate.har_recursive(a3.sig, validate.basket_returns(feat), mask)
+    if CHALLENGER_F5_PATH.exists():
+        frozen.committed_spec_hash(CHALLENGER_F5_PATH)      # must be committed and clean
+        res["P_F5_challenger"] = challenger_comparison(
+            spec3, json.loads(CHALLENGER_F5_PATH.read_text()), feat, mask, vxn)
     res["frozen_v3_sha256"] = presented_sha256
     out.mkdir(parents=True, exist_ok=True)
     (out / "prospective_results.json").write_text(json.dumps(res, indent=2, default=float) + "\n")
@@ -472,3 +477,64 @@ def prospective(presented_sha256: str, rerun_reason: str | None = None) -> dict:
             fh.write("# Prospective read log\n\n| when | frozen v3 sha256 | reason |\n|---|---|---|\n")
         fh.write(f"| {stamp} | `{presented_sha256[:16]}…` | {rerun_reason or 'the single pre-registered read'} |\n")
     return res
+
+
+CHALLENGER_F5_PATH = ROOT / "config" / "frozen_v3_challenger_F5.json"
+
+
+def freeze_challenger_f5(seed: int = 20261123) -> dict:
+    """Freeze family F5 (shock-type-dependent persistence) as a prospective challenger.
+
+    F5 passed the dev log-score gate (+0.0024 nats/obs, 2.2 s.e., calibrated
+    SPA p = 0.006) but failed two pre-declared adoption criteria: the
+    mechanism signature held only in part, and the market layer's VXN
+    tracking got worse. It is therefore not adopted. It is frozen on the same
+    estimation period and pre-registered as a challenger to v3's stock layer
+    on the prospective sample (docs/PREREGISTRATION_v3.md, P-F5).
+    """
+    panel = data.load_v3_estimation_panel()
+    obs = features.compute(panel).obs
+    m = mdl.fit_stock_model(mdl.F5_SPEC, obs, n_random=4, seed=seed, max_iter=6000, tol=1e-11)
+    if not m.converged:
+        raise RuntimeError("challenger did not converge; refusing to freeze")
+    doc = {"family": "F5", "spec": asdict(mdl.F5_SPEC), "model": model_to_dict(m),
+           "fit": {"loglik": m.loglik, "iters": len(m.history), "converged": m.converged,
+                   "n_obs": m.n_obs},
+           "regime_rule": {"x": features.SYSTEMIC_X, "share": features.SYSTEMIC_SHARE},
+           "estimation_zero_rate": mdl.zero_rate(obs),
+           "dev_evidence": "outputs/dev/family_F5.json"}
+    CHALLENGER_F5_PATH.write_text(json.dumps(doc, indent=1, default=float) + "\n")
+    return doc
+
+
+def challenger_comparison(spec3: dict, chal: dict, feat: features.Features, mask: np.ndarray,
+                          vxn: pd.Series | None = None) -> dict:
+    """P-F5: daily one-step log-score gain of the challenger over v3's stock model,
+    and (with ``vxn``) the paired difference in five-session-change Spearman of
+    logit breadth with VXN, the market-layer condition."""
+    obs = feat.obs
+    z0 = spec3["dev_zero_rate"]
+    inc = mdl.as_scoring_model(model_from_dict(spec3["stock_model"]), z0).filter(obs)
+    ch = mdl.as_scoring_model(model_from_dict(chal["model"]), z0).filter(obs)
+    days = mask & obs.eligible.any(axis=1)
+    n = obs.eligible[days].sum(axis=1)
+    d = (ch.logc[days].sum(axis=1) - inc.logc[days].sum(axis=1))
+    gain = float(d.sum() / n.sum())
+    se = float(stats.newey_west_se_mean(d, 10) * len(d) / n.sum())
+    t = gain / se if se > 0 else 0.0      # identical models: no evidence either way
+    out = {"gain_per_obs": gain, "nw10_se_per_obs": se, "t": t,
+           "p_one_sided": float(sp_stats.norm.sf(t)),
+           "n_days": int(days.sum()), "n_obs": int(n.sum())}
+    if vxn is not None:
+        v = vxn.reindex(obs.dates).to_numpy()
+        bl = {k: mdl.compute_signal(model_from_dict(d), obs, None, None, z0).breadth_L
+              for k, d in (("chal", chal["model"]), ("v3", spec3["stock_model"]))}
+        a = validate._d5(bl["chal"], v, obs.dates, days)
+        b = validate._d5(bl["v3"], v, obs.dates, days)
+        j = a.index.intersection(b.index)
+        diff = stats.corr_diff_ci(a.loc[j, "s"], b.loc[j, "s"], a.loc[j, "v"])
+        se_d = (diff["hi"] - diff["lo"]) / (2 * 1.96)
+        out["market_d5_spearman_chal_minus_v3"] = diff
+        out["market_condition_met"] = bool(diff["diff"] >= -se_d)
+        out["claim_F5_better"] = bool(out["p_one_sided"] < 0.05 and out["market_condition_met"])
+    return out

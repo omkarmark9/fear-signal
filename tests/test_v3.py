@@ -84,3 +84,25 @@ def test_prospective_panel_is_locked_without_committed_v3_spec(tmp_path, monkeyp
 def test_prospective_constants():
     assert config.PROSPECTIVE_START == config.V3_ESTIMATION_END + pd.Timedelta(days=1)
     assert config.PROSPECTIVE_SESSIONS == 400
+
+
+def test_challenger_comparison_is_zero_for_an_identical_model():
+    from fearsignal import features, pipeline
+    rng = np.random.default_rng(5)
+    obs, _ = simulate_halfnormal(mdl.V1_S, mdl.V1_A, None, T=120, N=12, rng=rng)
+    obs.regime = features.shock_regime(obs)
+    m = hmm.HMM(hmm.HalfNormalEmission(mdl.V1_S.copy(), None, "none", False), mdl.V1_A.copy())
+    spec3 = {"stock_model": pipeline.model_to_dict(m), "dev_zero_rate": 0.2}
+    chal = {"model": pipeline.model_to_dict(m)}
+    feat = type("F", (), {"obs": obs})()
+    r = pipeline.challenger_comparison(spec3, chal, feat, np.ones(120, bool))
+    assert r["gain_per_obs"] == 0.0 and r["n_days"] > 0
+
+
+def test_challenger_with_regime_stack_round_trips_through_frozen_dict():
+    from fearsignal import pipeline
+    A = np.stack([mdl.V1_A, mdl.V1_A[::-1, ::-1]])
+    m = hmm.HMM(hmm.HalfNormalEmission(mdl.V1_S.copy(), None, "none", False), A)
+    m2 = pipeline.model_from_dict(pipeline.model_to_dict(m))
+    assert m2.A.shape == (2, 3, 3)
+    np.testing.assert_allclose(m2.A, A, atol=1e-10)
