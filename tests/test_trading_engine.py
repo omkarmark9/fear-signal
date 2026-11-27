@@ -354,3 +354,17 @@ def test_forward_vol_stationary_and_absorbing_limits():
     fv = risk.forward_vol(np.array([0.02]), np.array([[1.0, 0, 0]]), I, s, 5)
     assert fv["h_vol"][0] == pytest.approx(0.02 * np.sqrt(5))
     assert fv["ann_vol"][0] == pytest.approx(0.02 * np.sqrt(252))
+
+
+def test_same_stock_baseline_recovers_a_constant_relative_drift():
+    from fearsignal.trading import backtest
+    T, N = 120, 4
+    g = np.ones((T, N))
+    g[:, 0] = 1.001                               # S0 drifts +0.1% a day, others flat
+    close = 100 * np.cumprod(g, axis=0)
+    p = _prices(close)
+    rf = type("RF", (), {"beta": pd.DataFrame(1.0, index=p.dates, columns=p.adj_close.columns)})()
+    base = backtest.same_stock_baseline(rf, p, H=5, start=p.dates[30], end=p.dates[-1])
+    R0 = 1.001 ** 5 - 1
+    assert base["S0"] == pytest.approx(R0 - R0 / 4, rel=1e-9)
+    assert base["S1"] == pytest.approx(-R0 / 4, rel=1e-9)

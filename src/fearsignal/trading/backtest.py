@@ -111,3 +111,33 @@ def strip(o):
         return {k: strip(v) for k, v in o.items() if not isinstance(v, (pd.DataFrame, pd.Series))}
     return o
 
+
+
+def same_stock_baseline(rf: signals.RuleFeatures, prices: engine.Prices, H: int, start, end,
+                        delay: int = 1, beta: bool = True) -> pd.Series:
+    """Each stock's mean H-session excess (R_i - beta_i R_B) over EVERY signal day in
+    [start, last day whose window exits by end]: the same-stock baseline that strips
+    the hindsight drift of the universe's winners from an event's excess.
+    Windows are open(s+delay) to open(s+delay+H), as in the engine."""
+    import numpy as np
+    dates = prices.dates
+    ao = prices.adj_open.to_numpy(float)
+    ok = engine.tradable(prices)
+    B = rf.beta.reindex(index=dates, columns=prices.adj_close.columns).to_numpy(float)
+    last = gates.last_signal_date(dates, H, delay, end)
+    S = np.flatnonzero((dates >= pd.Timestamp(start)) & (dates <= last))
+    tot = np.zeros(ao.shape[1])
+    cnt = np.zeros(ao.shape[1])
+    for s in S:
+        e, x = s + delay, s + delay + H
+        can = ok[s] & np.isfinite(ao[e]) & np.isfinite(ao[x])
+        if not can.any():
+            continue
+        R = ao[x] / ao[e] - 1
+        RB = np.nanmean(np.where(can, R, np.nan))
+        b = np.nan_to_num(B[s], nan=1.0) if beta else np.ones_like(R)
+        ex = np.where(can, R - b * RB, np.nan)
+        m = np.isfinite(ex)
+        tot[m] += ex[m]
+        cnt[m] += 1
+    return pd.Series(np.where(cnt > 0, tot / np.maximum(cnt, 1), np.nan), index=prices.adj_close.columns)
