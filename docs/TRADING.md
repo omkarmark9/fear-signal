@@ -22,8 +22,8 @@ is shown as information (Tier 0).
 ND, is at Tier 1 (pilot). That is the declared tier rule applied
 mechanically, and the evidence behind it is thin:
 - its 2024–25 edge is marginal;
-- that edge sits entirely in events an earlier exploratory study had
-  already looked at;
+- that edge sits almost entirely in events an earlier exploratory study
+  had already looked at;
 - the 2026 read is uninformative.
 
 Its live use is a **rotation**: when a new signal fires, sell the flagged
@@ -95,6 +95,11 @@ even worse.
 - entering one day later gives −8.5 bp/day;
 - one earnings cluster (17 events in April–June) supplies 88% of the per-event sum;
 - the gradual-drift signature fails in 2026 (45% of the drift arrives by session 2).
+
+In fairness, the per-event 2026 mean stays positive at 25 bps (+1.78%) and
+with a one-day delay (+0.79%), the intercept is positive (N1, a = +1.40%,
+s.e. 1.99%), and ND3 (H = 10) read +14.6 bp/day. These are consistent with
+a small real effect, but they don't establish one.
 
 The Tier-1 label is the declared tier mechanically applied. It is a pilot
 on dev evidence, not a confirmation.
