@@ -76,7 +76,7 @@ def build(panel=None, n_random: int = 2, seed: int = 0) -> PIT:
         refits.append({"refit": str(d.date()), "train_end": str(train.dates[-1].date()),
                        "n_obs": int(train.eligible.sum()), "converged": bool(m.converged),
                        "s": [float(v) for v in m.emission.s], "A_diag": [float(v) for v in np.diag(m.A)],
-                       "market_scale": scale})
+                       "A": np.asarray(m.A).tolist(), "market_scale": scale})
     el = obs.eligible
     hit2 = el & (np.nan_to_num(obs.x) >= features.SYSTEMIC_X)
     share = hit2.sum(axis=1) / np.maximum(el.sum(axis=1), 1)

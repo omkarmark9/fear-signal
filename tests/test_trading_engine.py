@@ -336,3 +336,21 @@ def test_ols_cluster_matches_hand_formula_and_reduces_to_hc1():
     hc1 = XtX_inv @ (X.T * e ** 2) @ X @ XtX_inv * n / (n - 2)
     np.testing.assert_allclose(r1["se"], np.sqrt(np.diag(hc1)), rtol=1e-10)   # G/(G-1)(n-1)/(n-k) = n/(n-k)
     assert r["clusters"] == 40
+
+
+def test_forward_vol_stationary_and_absorbing_limits():
+    from fearsignal.trading import risk
+    A = np.array([[0.95, 0.04, 0.01], [0.1, 0.85, 0.05], [0.2, 0.4, 0.4]])
+    s = np.array([1.0, 1.5, 3.8])
+    # starting from the stationary distribution, each day adds pi . s^2
+    w, vl = np.linalg.eig(A.T)
+    pi = np.real(vl[:, np.argmin(np.abs(w - 1))])
+    pi = pi / pi.sum()
+    u = risk.forward_var_units(pi, A, s, 10)
+    assert u[0] == pytest.approx(10 * pi @ s ** 2)
+    # an absorbing calm regime: H days at scale 1
+    I = np.eye(3)
+    assert risk.forward_var_units(np.array([1.0, 0, 0]), I, s, 5)[0] == pytest.approx(5.0)
+    fv = risk.forward_vol(np.array([0.02]), np.array([[1.0, 0, 0]]), I, s, 5)
+    assert fv["h_vol"][0] == pytest.approx(0.02 * np.sqrt(5))
+    assert fv["ann_vol"][0] == pytest.approx(0.02 * np.sqrt(252))
