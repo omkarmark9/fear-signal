@@ -3,18 +3,22 @@
  "B": 199,
  "R": 199,
  "seed": 20261127,
- "familywise_false_adoption": 0.08666666666666667,
- "mc_se": 0.01624351722539955,
+ "familywise_false_adoption": 0.09,
+ "mc_se": 0.016522711641858305,
  "per_family_false_adoption": {
-  "SR": 0.03666666666666667,
-  "ND": 0.05
+  "SR": 0.05,
+  "ND": 0.04
  },
  "per_family_calibrated_p_le_05": {
-  "SR": 0.03666666666666667,
-  "ND": 0.05
+  "SR": 0.05,
+  "ND": 0.04
  },
- "note": "upper bound: placebo adoption ignores the signature and robustness gates",
- "declaration_commit": "ec0954c166adac994a651508ffb17009245c32b4",
+ "note": "size of the gate's (a)+(b) at the placebo's B = R; the signature and robustness gates (c), (d) are not applied and can only remove adoptions. The real run uses B = R = 999: an exact calculation for the calibrated test puts its size about 1.17x this one's. Excess from beta-estimate error correlated with selection is not covered (plain-basket benchmark).",
+ "declaration_commit": "7965c7afa8270adf8c3b17e3390f988ce2a8b378",
+ "code": {
+  "head": "7965c7afa8270adf8c3b17e3390f988ce2a8b378",
+  "src_tree": "faf352a0bfc3759e5e0122a479ce29d6230ddab2"
+ },
  "inputs": {
   "pit_signals.parquet": "b02560aa774022b180b4b512d160ce6a1411e7c2e46073d09c16dce243cc0096",
   "pit_market.parquet": "18d389b8095c5b4391da753593a9e84e99ea47ece7aee9583726e73bc3b104bb",
@@ -22,6 +26,6 @@
   "trade_ohlcv.parquet": "6cae3d1d6851cb7c2222d311ed439b2b6089f640def2172d71a58769055cfa25",
   "dev.parquet": "0f2b346ccd07c4058087e55b9482eccc281e4a1e006da46b6a10bd9f173e023d",
   "holdout.parquet": "ffd8fdef1d17bec6c702fa79ae062f27ea9b639acffad10c9547739d320b114b",
-  "live.parquet": "05a147d96d9c1249409426e50f214569af34d00cb9e8f900444cc43a7dde8dfd"
+  "live_frozen_20261127.parquet": "05a147d96d9c1249409426e50f214569af34d00cb9e8f900444cc43a7dde8dfd"
  }
 }
