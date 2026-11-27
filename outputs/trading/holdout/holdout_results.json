@@ -1,0 +1,76 @@
+{
+ "SR.SR1": {
+  "stats": {
+   "n_days": 228,
+   "mean_daily": 0.0019817637608878953,
+   "se_daily": 0.0009485396366688673,
+   "t": 2.0892788074176427,
+   "ann_excess": 0.49940446774374964,
+   "ann_se": 0.23903198844055457,
+   "days_invested": 184,
+   "pw_block": 1.0,
+   "n_events": 299,
+   "mean_event_excess": 0.003572213744246554
+  },
+  "agrees": true,
+  "t_ge_1": true,
+  "status": "descriptive (not adopted on dev)"
+ },
+ "ND.ND1": {
+  "stats": {
+   "n_days": 228,
+   "mean_daily": 0.0006382169298088069,
+   "se_daily": 0.0010473122155412865,
+   "t": 0.6093855493502047,
+   "ann_excess": 0.16083066631181933,
+   "ann_se": 0.2639226783164042,
+   "days_invested": 224,
+   "pw_block": 1.0329043971280782,
+   "n_events": 54,
+   "mean_event_excess": 0.020756328954636326
+  },
+  "agrees": true,
+  "t_ge_1": false,
+  "status": "confirmation read"
+ },
+ "RF.RF1": {
+  "stats": {
+   "E_bar": 0.8980263157894737,
+   "mean_d": -0.0002727641886081377,
+   "se_d": 0.0003393083552100307,
+   "t_d": -0.8038829118702298,
+   "var_ratio": 0.9921989662753262,
+   "cvar95_net": -0.058645312110349096,
+   "cvar95_static": -0.055947881008805184,
+   "maxdd_net": -0.35795141107598016,
+   "maxdd_static": -0.3402027999555277,
+   "timing_of_mean": -0.0005542498297830664,
+   "mean_d_gamma2": -0.0002811641586726512,
+   "mean_d_gamma10": -0.00025876423850061523,
+   "sharpe_net": 0.4457203166258555,
+   "sharpe_basket_100": 0.6215146590263814,
+   "reduced_sessions": 49,
+   "n_days": 228
+  },
+  "A1": false,
+  "A2": false,
+  "confirmed": false,
+  "status": "confirmation read"
+ },
+ "_meta": {
+  "selection_sha256": "0d94aad9f5d3f1c8fb487c5b2bb7a4518d1e626a50375b396e2b3a901ef36a38",
+  "code": {
+   "head": "3065e1726220f59810e5df72e03b7c121bc161a1",
+   "src_tree": "faf352a0bfc3759e5e0122a479ce29d6230ddab2"
+  },
+  "inputs": {
+   "pit_signals.parquet": "b02560aa774022b180b4b512d160ce6a1411e7c2e46073d09c16dce243cc0096",
+   "pit_market.parquet": "18d389b8095c5b4391da753593a9e84e99ea47ece7aee9583726e73bc3b104bb",
+   "pit_refits.json": "65b2ba587c748a1148005d6c910e4af7c2f2aa61a613e21f0e8f4440217c9257",
+   "trade_ohlcv.parquet": "6cae3d1d6851cb7c2222d311ed439b2b6089f640def2172d71a58769055cfa25",
+   "dev.parquet": "0f2b346ccd07c4058087e55b9482eccc281e4a1e006da46b6a10bd9f173e023d",
+   "holdout.parquet": "ffd8fdef1d17bec6c702fa79ae062f27ea9b639acffad10c9547739d320b114b",
+   "live_frozen_20261127.parquet": "05a147d96d9c1249409426e50f214569af34d00cb9e8f900444cc43a7dde8dfd"
+  }
+ }
+}
