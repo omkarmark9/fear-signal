@@ -175,8 +175,35 @@ def main(n_days: int = 6) -> dict:
     print("\nRF exposure E (decided at each close):", E.round(2).to_dict())
     print("\nnext session:", nxt.date())
     LIVE_OUT.mkdir(parents=True, exist_ok=True)
+    acts = next_actions(tk, status, nxt) if len(tk) else []
     rec = {"as_of_close": str(prices.dates[-1].date()), "next_session": str(nxt.date()), "status": status,
            "model1": m1.reset_index().astype(str).to_dict(orient="records"),
            "tickets": tk.astype(str).to_dict(orient="records") if len(tk) else [],
-           "rf_exposure": {str(k.date()): float(v) for k, v in E.items()}, "data": report}
+           "next_session_actions": acts,
+           "rf_exposure": {str(k.date()): float(v) for k, v in E.items()},
+           "data": {k: v for k, v in report.items() if k != "history_bars_filled"}}
+    path = LIVE_OUT / f"live_{prices.dates[-1].date()}.json"
+    path.write_text(json.dumps(rec, indent=1, default=str) + "\n")
+    print("\nnext-session actions:", json.dumps(acts, indent=1, default=str))
+    print("wrote", path)
     return rec
+
+
+def next_actions(tk: pd.DataFrame, status: dict, nxt: pd.Timestamp) -> list[dict]:
+    """What the trading model does at the next open, by tier."""
+    out = []
+    for r in tk.itertuples():
+        entry, exit_ = pd.Timestamp(r.entry_open), pd.Timestamp(r.exit_open)
+        live_window = entry <= nxt < exit_
+        if r.family == "SR":
+            if entry == nxt or exit_ == nxt or live_window:
+                out.append({"ticker": r.ticker, "family": "SR", "tier": int(r.tier),
+                            "action": "none (Tier 0: SR not adopted on dev; display only)",
+                            "window": f"{entry.date()} -> {exit_.date()}"})
+        elif r.family == "ND" and (entry == nxt or live_window):
+            act = ("typed exit: if held, sell at the open; do not buy before the window ends"
+                   if r.tier >= 1 else "none (Tier 0)")
+            out.append({"ticker": r.ticker, "family": "ND", "tier": int(r.tier), "action": act,
+                        "window": f"{entry.date()} -> {exit_.date()}",
+                        "long_put": "not allowed below Tier 2" if r.tier < 2 else "allowed if rho <= 0.90"})
+    return out
