@@ -216,7 +216,8 @@ class RuleFeatures:
     g_all: pd.DataFrame      # gamma minus its all-stock median
     relvol: pd.DataFrame     # share volume / median of the previous 20 sessions
     price_ok: pd.DataFrame   # raw close >= $5
-    liquid20: pd.DataFrame   # median dollar volume over t-20..t-1 >= $20M
+    dv_med20: pd.DataFrame   # median dollar volume (raw close x volume) over t-20..t-1 (>= 15 values)
+    liquid20: pd.DataFrame   # dv_med20 >= $20M
     systemic: pd.Series
     share_hit2: pd.Series
     half_day: pd.Series
@@ -255,7 +256,8 @@ def rule_features(inp: Inputs, feat=None, beta_window: int = 126, beta_min: int 
     g_all = gamma.sub(gamma.where(el).median(axis=1), axis=0)
     close = inp.prices.close if inp.prices.close is not None else inp.prices.adj_close
     dv = inp.prices.dollar_volume
-    liquid20 = dv.rolling(20, min_periods=15).median().shift(1) >= 20e6
+    dv_med20 = dv.rolling(20, min_periods=15).median().shift(1)
+    liquid20 = dv_med20 >= 20e6
     hit2 = el & (x >= fmod.SYSTEMIC_X)
     share = hit2.sum(axis=1) / el.sum(axis=1).replace(0, np.nan)
     hd = pd.Series(idx.isin(half_days()), index=idx)
@@ -263,6 +265,6 @@ def rule_features(inp: Inputs, feat=None, beta_window: int = 126, beta_min: int 
         eligible=el, x=x, Z=inp.wide("Z").where(el), q_next=inp.wide("q_next").where(el),
         P_panic=inp.wide("P_panic").where(el), sigma=sigma, r=r, rB=rB, beta=beta, u=u, v=v,
         gamma=gamma, g_seg=g_seg, g_all=g_all, relvol=relative_volume(inp.prices),
-        price_ok=close >= 5.0, liquid20=liquid20.fillna(False),
+        price_ok=close >= 5.0, dv_med20=dv_med20, liquid20=liquid20.fillna(False),
         systemic=(share >= fmod.SYSTEMIC_SHARE).fillna(False), share_hit2=share,
         half_day=hd, M_pct=inp.market["M_pct"])

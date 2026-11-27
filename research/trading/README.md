@@ -28,8 +28,8 @@ panel, not from searching backtests.
 | file | content |
 |---|---|
 | `proposals/*.json` | each designer's structured proposal, verbatim |
-| `declaration.json` | the judge's output, verbatim (added with the declaration) |
-| `candidates.md` | the declaration as implemented, with the input hashes and the gate rules (added with the declaration) |
+| `declaration.json` | the judge's output, verbatim |
+| `candidates.md` | the declaration as implemented, with the input hashes and the gate rules |
 
 `candidates.md` and the code that implements it (`src/fearsignal/trading/families.py`)
 were committed before any backtest of a declared rule was run.
