@@ -202,3 +202,39 @@ def test_basket_cache_gives_identical_results():
     b = engine.run_cohorts(sig.assign(ticker="S2"), p, H=4, cache=cache)
     pd.testing.assert_frame_equal(a.daily, b.daily)
     assert len(cache) == len(a.cohorts) == 31     # days 5-8 lack 10 sessions of volume history
+
+
+def test_placebo_keeps_timing_and_counts_and_has_zero_mean_excess():
+    from fearsignal.trading import placebo
+    rng = np.random.default_rng(6)
+    T, N = 300, 12
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.02, (T, N)), axis=0))
+    p = _prices(close)
+    days = p.dates[20:280:3]
+    sig = pd.DataFrame({"date": np.repeat(days, 2), "ticker": ["S0", "S1"] * len(days)})
+    ps = placebo.placebo_signals(sig, p, 1, np.random.default_rng(0))
+    assert (ps.groupby("date").size() == 2).all() and set(ps["date"]) == set(days)
+    # averaged over many placebo draws, the excess over the basket is ~0 at zero cost
+    ex = []
+    for s in range(200):
+        ps = placebo.placebo_signals(sig, p, 1, np.random.default_rng(s))
+        ex.append(engine.run_cohorts(ps, p, H=5, cost_bps=0.0).cohorts["excess_net"].mean())
+    assert abs(np.mean(ex)) < 3 * np.std(ex) / np.sqrt(len(ex))
+
+
+def test_price_features_are_causal():
+    from fearsignal.trading import signals
+    rng = np.random.default_rng(7)
+    T, N = 260, 6
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.02, (T, N)), axis=0))
+    open_ = close * np.exp(rng.normal(0, 0.01, (T, N)))
+    p1 = _prices(close, open_)
+    c2, o2 = close.copy(), open_.copy()
+    c2[200:] *= 1.5
+    o2[200:] *= 1.5
+    p2 = _prices(c2, o2)
+    sig = pd.DataFrame(0.02, index=p1.dates, columns=p1.adj_close.columns)
+    for f in (lambda p: signals.trailing_beta(p), lambda p: signals.residual_sigma(p, sig),
+              lambda p: signals.gap_sigma(p, sig), lambda p: signals.relative_volume(p)):
+        a, b = f(p1).iloc[:200], f(p2).iloc[:200]
+        pd.testing.assert_frame_equal(a, b)
