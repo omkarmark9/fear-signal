@@ -35,6 +35,23 @@ to validate.
   earlier.
 * **v2, frozen 2025-12-31, tested once on 2026.** Its verdict is below.
 
+## Model 2: the trading model (`docs/TRADING.md`)
+
+A second model reads the fear index's outputs at each close and decides
+what to trade at the next open: AI stocks only, long only, options within
+level-2 approval. Its rules came from an independent design panel and
+were declared before any backtest (`research/trading/`). They were audited,
+selected on 2024–2025 and read once on 2026.
+
+| family | 2024–25 (dev) | 2026 (one read) | status |
+|---|---|---|---|
+| ND: stock-specific news gap-down on a calm day → underperforms for 20 sessions (bearish information) | +2.3% per event, t 2.5, calibrated SPA p 0.02 | +2.1% per event, t 0.6 | **Tier 1 (pilot)**: typed exits (sell if held, don't buy) |
+| SR: buy the most displaced names after systemic fear days | −0.3% per event, t −0.9 | +0.4% per event, t 2.1 (descriptive) | Tier 0: failed dev |
+| RF: cut basket exposure when market fear is high | variance −16%, tails better | variance −1%, tails worse | OFF: not confirmed |
+
+**No rule has reached high conviction.** The model says so, and it shows
+every signal with its tier.
+
 ## Verdict (2026 holdout, frozen spec, run once)
 
 | pre-registered test | 2026 result | |
@@ -121,6 +138,13 @@ fearsignal freeze-v3                             # re-estimate on 2023-01-03..20
 fearsignal v3-reference                          # in-sample v3 metrics (reference only)
 fearsignal download-prospective --end-exclusive YYYY-MM-DD   # only after v3 is committed
 fearsignal prospective --sha256 <sha256 of config/frozen_v3.json>  # once, at 400 sessions
+
+# model 2, the trading model (docs/TRADING.md)
+fearsignal trading-placebo                         # calibrate the selection gate on placebo families
+fearsignal trading-dev                             # once: dev selection, writes config/trading_selected.json
+fearsignal trading-holdout --sha256 <sha256 of config/trading_selected.json>   # once
+fearsignal trading-data --end-exclusive YYYY-MM-DD # refresh live prices (backtest inputs are hash-locked)
+fearsignal trading-live --days 6                   # both models on recent sessions, and the next session
 ```
 
 **Robinhood as the live price source.** The pipeline cannot call the
@@ -162,8 +186,14 @@ src/fearsignal/
   pipeline.py   freeze / apply / holdout
   figures.py    docs figures
   report.py     renders the holdout section of RESULTS.md from JSON
-tests/          engine vs brute force, EM properties, causality, protocol, test sizes
+  trading/      model 2: pit (point-in-time fear refits), market_data, signals (rule features),
+                families (the declared rules), registry, engine (cohort and calendar-time
+                accounting), gates (SPA, Holm, 1-SE), placebo, backtest, protocol (locks),
+                risk and sizing, options, calendar, live
+tests/          engine vs brute force, EM properties, causality, protocol, test sizes;
+                trading engine probes and an end-to-end synthetic protocol run
 research/v3/    raw provenance of the v3 course-correction round
+research/trading/  the trading model's design proposals, declaration, amendments and audit
 ```
 
 ## Known limitations
