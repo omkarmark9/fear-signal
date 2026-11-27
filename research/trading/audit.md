@@ -34,9 +34,9 @@ the holdout read. The fixes are listed in `candidates.md` under
 
 ## Findings and their disposition
 
-All findings were minor. None changes a dev statistic except SC-4, which
-removes non-universe rows from the H1-2024 basket, and SC-2, which affects
-RF's fit.
+One finding was major: AC-1, the calendar-time portfolio's turnover-day weighting. The
+rest were minor. Of the minor ones, only SC-4 (non-universe rows in the H1-2024 basket)
+and SC-2 (RF's fit) change a dev statistic.
 
 | id | lens | finding | disposition |
 |---|---|---|---|
@@ -48,3 +48,4 @@ RF's fit.
 | SC-6 | spec | some declared reported diagnostics missing | fixed |
 | LA-2 | look-ahead | no early closes after 2026-11-27 | fixed: through 2027, with a coverage guard |
 | LA-4 | look-ahead | the live report could misalign its two caches | fixed: it refuses to run |
+| AC-1 | accounting | the calendar-time series under-invested on every turnover day (entrants counted in the overnight leg, exiters in the intraday leg), shrinking means by 3–11% depending on H and diluting costs | fixed: the series is computed per leg; probe tests added; placebo rerun |

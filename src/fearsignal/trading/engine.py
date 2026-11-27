@@ -106,6 +106,18 @@ def _paths(ao: np.ndarray, ac: np.ndarray, e: int, x: int, J: np.ndarray) -> np.
     return (np.vstack([filled, o[None, :]]) / entry[None, :]).T
 
 
+def _half_paths(ao: np.ndarray, ac: np.ndarray, e: int, x: int, J: np.ndarray) -> np.ndarray:
+    """Values of $1 bought at the open of e, at every open AND close of the hold:
+    O_e, C_e, O_e+1, C_e+1, ..., O_x-1, C_x-1, O_x. Shape (len(J), 2(x-e)+1).
+    A missing price carries the last value forward (a halt), as in ``_paths``."""
+    H = x - e
+    seq = np.empty((len(J), 2 * H + 1))
+    seq[:, 0::2] = ao[e:x + 1][:, J].T
+    seq[:, 1::2] = ac[e:x][:, J].T
+    filled = pd.DataFrame(seq.T).ffill().to_numpy().T
+    return filled / filled[:, :1]
+
+
 def tradable(prices: Prices) -> np.ndarray:
     """T x N: has a close and is liquid at t (both known at the close of t)."""
     return np.isfinite(prices.adj_close.to_numpy(float)) & prices.liquid().to_numpy(bool)
@@ -124,8 +136,13 @@ def run_cohorts(signals: pd.DataFrame, prices: Prices, H: int, cost_bps: float =
 
     Two daily excess series are returned. ``excess_net`` gives each of the
     last H cohorts 1/H of the capital (Jegadeesh-Titman). ``ct_excess_net``
-    is the calendar-time portfolio (Fama 1998): each day, equal weight across
-    every open position, and 0 on days with none.
+    is the calendar-time portfolio (Fama 1998), fully invested in the open
+    positions at equal weight. Each session is two legs:
+    - the overnight leg, close d-1 to open d, averages over the positions held
+      at the close of d-1, net of exit costs for those sold at d's open;
+    - the intraday leg, open d to close d, averages over the positions held
+      after d's open, net of entry costs for those bought then.
+    The two legs compound. A leg with no position is 0 (cash).
 
     ``beta`` (dates x tickers, known at t) makes the benchmark beta x basket.
     Each name's event excess is then R_i - beta_i,t R_B. On a day the
@@ -153,7 +170,9 @@ def run_cohorts(signals: pd.DataFrame, prices: Prices, H: int, cost_bps: float =
     c = cost_bps / 1e4
     sgn = 1.0 if side == "long" else -1.0
     cols_out = {k: np.zeros(T) for k in ("gross", "net", "benchmark", "excess_net", "n_cohorts_active")}
-    ct_sum, ct_n = np.zeros(T), np.zeros(T)          # calendar-time: sum and count of open positions
+    # calendar-time portfolio, per leg: overnight (close d-1 -> open d) over positions held at
+    # the close of d-1, intraday (open d -> close d) over positions held after d's open
+    on_sum, on_n, id_sum, id_n = np.zeros(T), np.zeros(T), np.zeros(T), np.zeros(T)
     BETA = beta.reindex(index=dates, columns=cols).to_numpy(float) if beta is not None else None
     trades, cohorts = [], []
     for d, grp in sig.groupby("date"):
@@ -208,15 +227,29 @@ def run_cohorts(signals: pd.DataFrame, prices: Prices, H: int, cost_bps: float =
         cols_out["benchmark"][days] += bench / H
         cols_out["excess_net"][days] += ex / H
         cols_out["n_cohorts_active"][days] += 1.0
-        # calendar-time accounting: every open position's own daily excess, equal weight per day
-        pv = np.hstack([np.ones((len(names), 1)), paths])          # (n, H+2) value at entry open = 1
-        pr = pv[:, 1:] / pv[:, :-1] - 1                             # (n, H+1) daily returns per position
-        pcost = np.zeros_like(pr)
-        pcost[:, 0] += c * (1 + pr[:, 0])                           # entry cost, as a return on the entry day
-        pcost[:, -1] += c * (1 + pr[:, -1])                         # exit cost on the exit day
-        pex = sgn * (pr - bj[:, None] * rb[None, :]) - pcost
-        ct_sum[days] += pex.sum(axis=0)
-        ct_n[days] += len(names)
+        # calendar-time accounting, per leg. Legs alternate: intraday of e, overnight of e+1,
+        # intraday of e+1, ..., intraday of x-1, overnight of x. Each position is measured
+        # against beta x its OWN cohort's buy-and-hold basket over the same leg.
+        hkey = (t, delay, H, "half")
+        if cache is not None and hkey in cache:
+            vb = cache[hkey]
+        else:
+            vb = _half_paths(ao, ac, e, x, univ).mean(axis=0)
+            if cache is not None:
+                cache[hkey] = vb
+        vp = _half_paths(ao, ac, e, x, np.asarray(names))
+        lp = vp[:, 1:] / vp[:, :-1] - 1                             # (n, 2H) position legs
+        lb = vb[1:] / vb[:-1] - 1                                   # (2H,) own-basket legs
+        lex = sgn * (lp - bj[:, None] * lb[None, :])
+        lex[:, 0] -= c * (1 + lp[:, 0])                             # bought at the open of e
+        lex[:, -1] -= c * (1 + lp[:, -1])                           # sold at the open of x
+        n_pos = len(names)
+        id_days = e + np.arange(H)                                  # legs 0, 2, 4, ...
+        on_days = e + 1 + np.arange(H)                              # legs 1, 3, 5, ...
+        id_sum[id_days] += lex[:, 0::2].sum(axis=0)
+        id_n[id_days] += n_pos
+        on_sum[on_days] += lex[:, 1::2].sum(axis=0)
+        on_n[on_days] += n_pos
         rt_cost = 1 - (1 - c) ** 2
         RB = bval[-1] - 1
         for j, wt, p, b in zip(names, w, paths, bj):
@@ -228,8 +261,12 @@ def run_cohorts(signals: pd.DataFrame, prices: Prices, H: int, cost_bps: float =
                         "beta": float(w @ bj),
                         "excess_net": sgn * (float(w @ (paths[:, -1] - 1 - bj * RB))) - rt_cost})
     daily = pd.DataFrame(cols_out, index=dates)
-    daily["ct_excess_net"] = np.where(ct_n > 0, ct_sum / np.maximum(ct_n, 1), 0.0)
-    daily["ct_n_open"] = ct_n
+    on_leg = np.where(on_n > 0, on_sum / np.maximum(on_n, 1), 0.0)
+    id_leg = np.where(id_n > 0, id_sum / np.maximum(id_n, 1), 0.0)
+    daily["ct_excess_net"] = (1 + on_leg) * (1 + id_leg) - 1
+    daily["ct_n_overnight"] = on_n
+    daily["ct_n_intraday"] = id_n
+    daily["ct_n_open"] = np.maximum(on_n, id_n)
     return Result(daily, pd.DataFrame(trades), pd.DataFrame(cohorts),
                   {"H": H, "cost_bps": cost_bps, "delay": delay, "side": side})
 

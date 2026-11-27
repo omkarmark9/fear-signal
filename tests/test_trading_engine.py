@@ -201,7 +201,9 @@ def test_basket_cache_gives_identical_results():
     a = engine.run_cohorts(sig, p, H=4, cache=cache)
     b = engine.run_cohorts(sig.assign(ticker="S2"), p, H=4, cache=cache)
     pd.testing.assert_frame_equal(a.daily, b.daily)
-    assert len(cache) == len(a.cohorts) == 31     # days 5-8 lack 10 sessions of volume history
+    # one close-path and one open-and-close path per cohort; days 5-8 lack 10 sessions of volume
+    assert len([k for k in cache if len(k) == 3]) == len(a.cohorts) == 31
+    assert len([k for k in cache if len(k) == 4]) == 31
 
 
 def test_placebo_keeps_timing_and_counts_and_has_zero_mean_excess():
@@ -391,3 +393,47 @@ def test_sizing_primitives():
     assert sizing.risk_budget(2, 0.03, 8, 0.55) == pytest.approx(0.005 / (1 + 7 * 0.55))   # the declared worked example
     refits = [{"refit": "2024-01-02"}, {"refit": "2024-04-01"}]
     assert sizing.refit_of(pd.to_datetime(["2024-01-02", "2024-03-29", "2024-04-01"]), refits) == [0, 0, 1]
+
+
+def test_calendar_time_overnight_leg_holds_only_positions_held_at_the_close():
+    """Audit AC-1, probe A: an entrant bought at the open has no overnight leg."""
+    close = _flat(T=40, N=3)
+    open_ = close.copy()
+    open_[23, 0] = 104.0                  # S0 (held since the open of 21) gaps +4% into day 23
+    close[23:, 0] = 104.0
+    open_[24:, 0] = 104.0
+    p = _prices(close, open_)
+    sig = pd.DataFrame({"date": [p.dates[20], p.dates[22]], "ticker": ["S0", "S1"]})
+    r = engine.run_cohorts(sig, p, H=5, cost_bps=0.0)
+    # overnight: S0 alone, +4% against its cohort basket's +4%/3; intraday: S0 and S1 both flat
+    assert r.daily["ct_excess_net"].iloc[23] == pytest.approx(0.04 - 0.04 / 3)
+    assert r.daily["ct_n_overnight"].iloc[23] == 1 and r.daily["ct_n_intraday"].iloc[23] == 2
+
+
+def test_calendar_time_exit_and_entry_on_the_same_open_compound():
+    """Audit AC-1, probe B: A sold at the open after +5% overnight, B bought there and up 5%."""
+    close = _flat(T=40, N=3)
+    open_ = close.copy()
+    open_[16, 0] = 105.0                  # A = S0, held from the open of 11, exits at the open of 16
+    close[16:, 0] = 105.0
+    open_[17:, 0] = 105.0
+    close[16:, 1] = 105.0                 # B = S1, bought at the open of 16 (100), closes at 105
+    open_[17:, 1] = 105.0
+    p = _prices(close, open_)
+    sig = pd.DataFrame({"date": [p.dates[10], p.dates[15]], "ticker": ["S0", "S1"]})
+    r = engine.run_cohorts(sig, p, H=5, cost_bps=0.0)
+    on = 0.05 - 0.05 / 3                  # A against its cohort basket overnight
+    intra = 0.05 - (1.0 + 1.05 + 1.0) / 3 + 1.0  # B against its own cohort basket bought at that open
+    assert r.daily["ct_excess_net"].iloc[16] == pytest.approx((1 + on) * (1 + intra) - 1)
+
+
+def test_calendar_time_steady_state_pays_full_costs():
+    """Audit AC-1: with H = 1 and a new name every day, each session pays 2c (exit + entry)."""
+    p = _prices(_flat(T=60, N=4))
+    sig = pd.DataFrame({"date": p.dates[15:45], "ticker": ["S0", "S1"] * 15})
+    r = engine.run_cohorts(sig, p, H=1, cost_bps=10.0)
+    c = 1e-3
+    assert r.daily["ct_excess_net"].iloc[25] == pytest.approx((1 - c) * (1 - c) - 1)
+    r5 = engine.run_cohorts(pd.DataFrame({"date": p.dates[15:45], "ticker": "S2"}), p, H=5, cost_bps=10.0)
+    # H = 5, one name a day: the portfolio turns over 1/5 of its names each open, paying 2c/5
+    assert r5.daily["ct_excess_net"].iloc[30] == pytest.approx((1 - c / 5) * (1 - c / 5) - 1)
