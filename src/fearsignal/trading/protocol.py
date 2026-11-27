@@ -27,9 +27,11 @@ from ..frozen import ROOT
 
 OUT = ROOT / "outputs" / "trading"
 SELECTED = ROOT / "config" / "trading_selected.json"
+FROZEN_LIVE = RAW / "live_frozen_20261127.parquet"   # byte copy of live.parquet as of the declaration
 INPUT_FILES = ("pit_signals.parquet", "pit_market.parquet", "pit_refits.json", "trade_ohlcv.parquet",
-               # the fear panel that r, sigma, x and eligibility are recomputed from
-               "dev.parquet", "holdout.parquet", "live.parquet")
+               # the fear panel that r, sigma, x and eligibility are recomputed from; backtests read the
+               # frozen snapshot of the live bars, so `fearsignal live` can refresh live.parquet freely
+               "dev.parquet", "holdout.parquet", FROZEN_LIVE.name)
 INPUTS_LOCK = ROOT / "config" / "trading_inputs.json"
 
 
@@ -50,7 +52,8 @@ def check_holdout_unlock(presented_sha256: str, rerun_reason: str | None) -> Non
     sha = committed_selection_hash()
     if presented_sha256 != sha:
         raise HoldoutLocked("presented hash does not match the committed config/trading_selected.json")
-    if (OUT / "holdout" / "holdout_results.json").exists() and not rerun_reason:
+    if ((OUT / "holdout" / "holdout_results.json").exists() or (OUT / "holdout" / "RUNLOG.md").exists()) \
+            and not rerun_reason:
         raise RuntimeError("the trading holdout has already been read; pass a rerun reason to read it again")
 
 
@@ -136,3 +139,56 @@ def check_inputs() -> dict:
         raise HoldoutLocked(f"inputs differ from config/trading_inputs.json: {sorted(bad)}")
     frozen.committed_spec_hash(INPUTS_LOCK)          # the lock itself must be committed and clean
     return now
+
+
+CODE_PATHS = ("src", "research/trading", "config", "tests")
+
+
+def code_state() -> dict:
+    """HEAD and the src/fearsignal tree hash; refuses if any protocol-relevant path is dirty.
+
+    Every gate, engine, feature and rule module lives under src/fearsignal, so the tree
+    hash pins exactly the code a dev run or a holdout read executes."""
+    import subprocess
+    dirty = subprocess.run(["git", "status", "--porcelain", "--", *CODE_PATHS], cwd=ROOT,
+                           capture_output=True, text=True).stdout.strip()
+    if dirty:
+        raise HoldoutLocked("uncommitted changes under " + ", ".join(CODE_PATHS) + ":\n" + dirty)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    tree = subprocess.run(["git", "rev-parse", "HEAD:src/fearsignal"], cwd=ROOT,
+                          capture_output=True, text=True).stdout.strip()
+    return {"head": head, "src_tree": tree}
+
+
+def check_same_code(selection: dict) -> dict:
+    """The holdout read must run the exact code the dev selection ran."""
+    now = code_state()
+    want = selection.get("code", {}).get("src_tree")
+    if not want or now["src_tree"] != want:
+        raise HoldoutLocked(f"src/fearsignal tree {now['src_tree'][:12]} differs from the dev selection's "
+                            f"{(want or 'missing')[:12]}; the holdout must read the selected code")
+    return now
+
+
+def log_holdout_start(presented_sha256: str, reason: str | None) -> None:
+    """Written BEFORE any 2026 outcome is computed, so an interrupted read is still on record."""
+    log = OUT / "holdout" / "RUNLOG.md"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    new = not log.exists()
+    with open(log, "a") as fh:
+        if new:
+            fh.write("# Trading holdout run log\n\n| when (UTC) | selection sha256 | last session | reason |\n"
+                     "|---|---|---|---|\n")
+        when = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        fh.write(f"| {when} | {presented_sha256[:12]}... | (read started) | {reason or 'first read'} |\n")
+
+
+def holdout_matches_selection() -> bool:
+    """True only if a holdout read exists and was made under the committed selection."""
+    h = OUT / "holdout" / "holdout_results.json"
+    if not (h.exists() and SELECTED.exists()):
+        return False
+    try:
+        return json.loads(h.read_text())["_meta"]["selection_sha256"] == committed_selection_hash()
+    except Exception:
+        return False

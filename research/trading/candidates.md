@@ -192,7 +192,7 @@ cohort exits by 2025-12-31.
 **Placebo calibration**, run before the dev run and reported, not a gate:
 - 300 replications, B = R = 199.
 - Each declared variant keeps its real signal days and names per day, but the names are random draws from the basket's universe.
-- The placebo omits gates (c) and (d), so its family-wise adoption rate is an upper bound on the full gate's.
+- The placebo omits gates (c) and (d), which can only remove adoptions. Its rate is that of a B = R = 199 gate; see SP-4 for the B = R = 999 adjustment.
 
 ## Holdout and tiers
 
@@ -255,4 +255,10 @@ The audit's transcript is summarised in `research/trading/audit.md`.
 | SC-6 | Several declared "reported" diagnostics were not produced. | Added: the plain-basket benchmark and the 1/H series for every variant; SR4's segment breakdown when SR4 beats SR1; RF's Moreira–Muir ratio, episode contributions, the delay-kept share of the variance gain, and the bootstrap Sharpe difference. | Reported only. |
 | LA-2 | No early closes were listed after 2026-11-27. | The list covers 2026-12-24 and 2027-11-26. Dating future sessions refuses to run past the tables' coverage. | Live only. |
 | AC-1 (major) | The calendar-time gate series counted each position as a full member of the day's average on its two partial days. An entrant has no overnight return and an exiter has no intraday return, so on every turnover day part of the capital sat idle and costs were diluted. Means were shrunk by 3–11% depending on H, which tilts the 1-SE choice toward long holds. This is not the declared "equal weight across all open positions" portfolio. | The series is now computed per leg. The overnight leg averages over positions held at the previous close and charges exit costs. The intraday leg averages over positions held after the open and charges entry costs. The two legs compound. The placebo was rerun on the corrected series. | Every gate statistic. Per-event excess, the 1/H series and the signatures are unchanged. |
+| SP-1 (major) | The holdout read did not check that it ran the code the dev selection ran, so an uncommitted rule edit would pass. | The dev run records HEAD and the `src/fearsignal` tree hash in the selection. The holdout read refuses unless the tree is clean and identical. Its start is logged before any 2026 outcome is computed, and its lock file is written before the outcome files. | None. |
+| SP-2 (major) | The declaration check covered only 3 files, so gate, engine or feature code could change unnoticed. | trading-placebo and trading-dev refuse unless `src/`, `research/trading/`, `config/` and `tests/` are clean, and they record the code state. | None. |
+| SP-3 (major) | `trading-live` would print realized P/L of 2026 holdout events before any read. | Live hides every outcome with a signal on or before 2026-11-27 until a holdout read exists under the committed selection. | None (no live run before the read). |
+| SP-4 | The placebo (B = R = 199) was called an upper bound for the real gate (B = R = 999). An exact calculation for the calibrated test puts the real gate's size about 1.17× higher, and the placebo's plain-basket benchmark does not cover beta-estimate error. | The wording is corrected. The rerun on the corrected engine gives SR 5.0%, ND 4.0% and family-wise 9.0% (MC s.e. 1.65%), so about 5.9%, 4.7% and 10.5% at B = R = 999, before gates (c) and (d). | Reporting only. |
+| SP-5 | Locking `live.parquet` meant a routine live refresh would block the holdout read. | Backtests read a frozen byte copy, `live_frozen_20261127.parquet`, with the same hash. | None. |
+| SP-6 | Live tiers could reuse a holdout read made under a different selection. | A tier above 0, or RF ON, needs a confirmation read made under the committed selection. | Live only. |
 | LA-4 | The live report could silently misalign if the price cache and the fear panel ended on different sessions. | It refuses to run unless both end on the same session. | Live only. |

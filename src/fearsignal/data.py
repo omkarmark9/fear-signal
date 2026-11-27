@@ -292,12 +292,12 @@ def _frozen_history() -> pd.DataFrame:
     return pd.concat([dev, hold], ignore_index=True)
 
 
-def load_live_panel(source: str = "yahoo") -> Panel:
+def load_live_panel(source: str = "yahoo", live_path=None) -> Panel:
     """History through 2026-11-23 plus newer bars, for display (see live_panel)."""
-    return live_panel(source)[0]
+    return live_panel(source, live_path)[0]
 
 
-def live_panel(source: str = "yahoo") -> tuple[Panel, dict]:
+def live_panel(source: str = "yahoo", live_path=None) -> tuple[Panel, dict]:
     """History through 2026-11-23 plus newer bars, for display, with a data report.
 
     Live monitoring applies the frozen v3 spec to sessions after the freeze.
@@ -317,7 +317,7 @@ def live_panel(source: str = "yahoo") -> tuple[Panel, dict]:
     """
     past = _frozen_history()
     if source == "yahoo":
-        live = pd.read_parquet(RAW / "live.parquet")
+        live = pd.read_parquet(live_path or (RAW / "live.parquet"))
         past = align_adjustment_basis(past, live)
         new = live[pd.to_datetime(live["date"]) > V3_ESTIMATION_END]
         return to_panel(pd.concat([past, new], ignore_index=True)), {"source": "yahoo"}

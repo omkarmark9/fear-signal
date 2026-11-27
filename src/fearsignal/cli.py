@@ -212,14 +212,16 @@ def _trading(a) -> None:
         print("wrote", market_data.LIVE_PATH)
     elif a.cmd == "trading-placebo":
         commit = protocol.declaration_commit()
+        code = protocol.code_state()
         protocol.check_inputs()
         rf, prices = backtest.load_inputs()
         res = placebo.calibrate(backtest.placebo_spec(rf, prices), reps=a.reps, workers=a.workers)
-        res.update(declaration_commit=commit, inputs=protocol.input_manifest())
+        res.update(declaration_commit=commit, code=code, inputs=protocol.input_manifest())
         protocol.write_json(out / "placebo.json", res)
         print(json.dumps(res, indent=1))
     elif a.cmd == "trading-dev":
         commit = protocol.declaration_commit()
+        code = protocol.code_state()
         protocol.check_inputs()
         protocol.check_dev_once(a.rerun_reason)
         dev = backtest.run_dev()
@@ -236,24 +238,29 @@ def _trading(a) -> None:
                                  for n, rv in rfe["variants"].items()}
         res["RF"].pop("sigma_hat", None)
         res["declaration_commit"] = commit
+        res["code"] = code
         protocol.write_json(d / "dev_results.json", res)
-        protocol.write_json(protocol.SELECTED, backtest.selection_from_dev(dev, commit))
+        sel = backtest.selection_from_dev(dev, commit)
+        sel["code"] = code
+        protocol.write_json(protocol.SELECTED, sel)
         protocol.log_dev(commit, a.rerun_reason)
         print(json.dumps(json.loads(protocol.SELECTED.read_text()), indent=1))
     elif a.cmd == "trading-holdout":
         protocol.check_inputs()
         protocol.check_holdout_unlock(a.sha256, a.rerun_reason)
         sel = json.loads(protocol.SELECTED.read_text())
+        code = protocol.check_same_code(sel)
+        protocol.log_holdout_start(a.sha256, a.rerun_reason)      # on record before any outcome exists
         res = backtest.run_holdout(sel)
         h = out / "holdout"
         h.mkdir(parents=True, exist_ok=True)
+        clean = {k: backtest.strip(v) for k, v in res.items()}
+        clean["_meta"] = {"selection_sha256": a.sha256, "code": code, "inputs": protocol.input_manifest()}
+        protocol.write_json(h / "holdout_results.json", clean)     # the lock, before the outcome files
         for k, v in res.items():
             if "daily" in v:
                 v["daily"].to_csv(h / f"daily_{k}.csv", float_format="%.8g")
                 v["trades"].to_csv(h / f"trades_{k}.csv", index=False, float_format="%.6g")
-        clean = {k: backtest.strip(v) for k, v in res.items()}
-        clean["_meta"] = {"selection_sha256": a.sha256, "inputs": protocol.input_manifest()}
-        protocol.write_json(h / "holdout_results.json", clean)
         protocol.log_holdout(a.sha256, "2026-11-27", a.rerun_reason)
         print(json.dumps(clean, indent=1))
     elif a.cmd == "trading-live":

@@ -158,3 +158,40 @@ def test_execution_prices_respect_universe_listing_dates():
     for t, d in universe.table()["trade_start"].dropna().items():
         before = p.adj_close.index < pd.Timestamp(d)
         assert p.adj_close.loc[before, t].isna().all() and p.adj_open.loc[before, t].isna().all()
+
+
+def test_holdout_refuses_code_other_than_the_dev_selections(monkeypatch):
+    """Audit SP-1: the 2026 read must run the exact src tree the dev selection ran."""
+    from fearsignal.config import HoldoutLocked
+    from fearsignal.trading import protocol
+    monkeypatch.setattr(protocol, "code_state", lambda: {"head": "h", "src_tree": "b" * 40})
+    with pytest.raises(HoldoutLocked):
+        protocol.check_same_code({"code": {"src_tree": "a" * 40}})
+    with pytest.raises(HoldoutLocked):
+        protocol.check_same_code({})                        # a selection without a code record
+    assert protocol.check_same_code({"code": {"src_tree": "b" * 40}})["src_tree"] == "b" * 40
+
+
+def test_live_tiers_need_a_confirmation_read_under_the_committed_selection(tmp_path, monkeypatch):
+    """Audit SP-3 / SP-6: no tier above 0, and no holdout outcome shown, without a matching read."""
+    import json
+    from fearsignal.trading import live, protocol
+    monkeypatch.setattr(protocol, "OUT", tmp_path)
+    sel = tmp_path / "sel.json"
+    sel.write_text(json.dumps({"families": {
+        "SR": {"chosen": "SR1", "adopted": True}, "ND": {"chosen": "ND1", "adopted": False},
+        "RF": {"chosen": "RF1", "adopted": True}}}))
+    monkeypatch.setattr(protocol, "SELECTED", sel)
+    monkeypatch.setattr(protocol, "committed_selection_hash", lambda: "c" * 64)
+    (tmp_path / "holdout").mkdir()
+    read = {"SR.SR1": {"stats": {"mean_daily": 1e-3, "t": 2.0}, "status": "confirmation read"},
+            "RF.RF1": {"confirmed": True, "status": "confirmation read"},
+            "_meta": {"selection_sha256": "d" * 64}}           # made under a DIFFERENT selection
+    (tmp_path / "holdout" / "holdout_results.json").write_text(json.dumps(read))
+    st = live.family_status()
+    assert st["SR"]["tier"] == 0 and st["RF"]["state"] == "OFF"
+    assert not protocol.holdout_matches_selection()
+    read["_meta"]["selection_sha256"] = "c" * 64              # the committed selection
+    (tmp_path / "holdout" / "holdout_results.json").write_text(json.dumps(read))
+    st = live.family_status()
+    assert st["SR"]["tier"] == 2 and st["RF"]["state"] == "ON" and st["ND"]["tier"] == 0

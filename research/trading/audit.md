@@ -34,9 +34,7 @@ the holdout read. The fixes are listed in `candidates.md` under
 
 ## Findings and their disposition
 
-One finding was major: AC-1, the calendar-time portfolio's turnover-day weighting. The
-rest were minor. Of the minor ones, only SC-4 (non-universe rows in the H1-2024 basket)
-and SC-2 (RF's fit) change a dev statistic.
+Four findings were major. AC-1 concerned the calendar-time portfolio's turnover-day weighting, and SP-1, SP-2 and SP-3 were protocol locks. The rest were minor. Only AC-1, SC-4 (non-universe rows in the H1-2024 basket) and SC-2 (RF's fit) change a dev statistic.
 
 | id | lens | finding | disposition |
 |---|---|---|---|
@@ -49,3 +47,14 @@ and SC-2 (RF's fit) change a dev statistic.
 | LA-2 | look-ahead | no early closes after 2026-11-27 | fixed: through 2027, with a coverage guard |
 | LA-4 | look-ahead | the live report could misalign its two caches | fixed: it refuses to run |
 | AC-1 | accounting | the calendar-time series under-invested on every turnover day (entrants counted in the overnight leg, exiters in the intraday leg), shrinking means by 3–11% depending on H and diluting costs | fixed: the series is computed per leg; probe tests added; placebo rerun |
+| SP-1 | statistics | the holdout read was not tied to the dev selection's code | fixed: a clean, identical `src/fearsignal` tree is required; the start is logged before any outcome |
+| SP-2 | statistics | the declaration check covered 3 files | fixed: clean tree required, code state recorded |
+| SP-3 | statistics | `trading-live` could show 2026 outcomes before the read | fixed: hidden until a matching read |
+| SP-4 | statistics | 'upper bound' overstated the placebo (B = R = 199 against 999) | wording corrected; R-adjusted sizes reported |
+| SP-5 | statistics | locking `live.parquet` would block the read after a refresh | fixed: frozen snapshot |
+| SP-6 | statistics | live tiers could reuse a read under another selection | fixed |
+
+**Verification of findings.** The workflow's skeptic phase (three refuters per finding) was stopped after the four
+audits. With two agents allowed at a time, it would have taken several hours. Each finding was instead reproduced
+and checked by the implementer, using the auditors' scripts and evidence. Each fix is covered by a regression test
+where one applies: SC-2, SC-3, SC-4, AC-1 (three probes), SP-1 and SP-3/SP-6.

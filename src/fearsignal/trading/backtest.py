@@ -158,9 +158,9 @@ def same_stock_baseline(rf: signals.RuleFeatures, prices: engine.Prices, H: int,
 # ---------------------------------------------------------------- orchestration
 
 def load_inputs():
-    """Point-in-time rule features and prices, as used by every backtest."""
+    """Point-in-time rule features and prices, as used by every backtest (frozen inputs only)."""
     inp = signals.build()
-    rf = signals.rule_features(inp)
+    rf = signals.rule_features(inp, signals.fear_features(live_path=protocol.FROZEN_LIVE))
     return rf, inp.prices
 
 

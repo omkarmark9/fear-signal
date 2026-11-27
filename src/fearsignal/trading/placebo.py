@@ -97,9 +97,11 @@ def calibrate(families: list[dict], reps: int = 300, workers: int = 4, B: int = 
               seed: int = 20261127, start=None, end=None) -> dict:
     """Run ``reps`` placebo replications of the gate in parallel.
 
-    Gates (c) signature and (d) robustness are NOT applied to placebos. Both can
-    only remove adoptions, so the measured rate is an upper bound on the full
-    gate's false-adoption rate.
+    Gates (c) signature and (d) robustness are NOT applied to placebos; both can
+    only remove adoptions. The rate is that of a B = R gate; at the real run's
+    B = R = 999 the calibrated test's exact size is about 1.17x higher, and
+    excess from beta-estimate error correlated with selection is not covered
+    (the placebo benchmark is the plain basket).
     """
     from concurrent.futures import ProcessPoolExecutor
     start = start or gates.DEV[0]
@@ -115,4 +117,8 @@ def calibrate(families: list[dict], reps: int = 300, workers: int = 4, B: int = 
     return {"reps": reps, "B": B, "R": R, "seed": seed,
             "familywise_false_adoption": any_rate, "mc_se": se,
             "per_family_false_adoption": per, "per_family_calibrated_p_le_05": p_lt_05,
-            "note": "upper bound: placebo adoption ignores the signature and robustness gates"}
+            "note": ("size of the gate's (a)+(b) at the placebo's B = R; the signature and robustness gates "
+                     "(c), (d) are not applied and can only remove adoptions. The real run uses B = R = 999: "
+                     "an exact calculation for the calibrated test puts its size about 1.17x this one's. "
+                     "Excess from beta-estimate error correlated with selection is not covered (plain-basket "
+                     "benchmark).")}

@@ -226,10 +226,13 @@ class RuleFeatures:
     P_stressed: pd.DataFrame | None = None
 
 
-def fear_features(panel=None):
-    """The fear model's deterministic features (r, sigma, x, eligibility) on the live panel."""
+def fear_features(panel=None, live_path=None):
+    """The fear model's deterministic features (r, sigma, x, eligibility) on the live panel.
+
+    Backtests pass the frozen snapshot of the live bars (protocol.FROZEN_LIVE), so a
+    routine `fearsignal live` refresh can never move a locked input."""
     from .. import data, features
-    panel = panel if panel is not None else data.load_live_panel("yahoo")
+    panel = panel if panel is not None else data.load_live_panel("yahoo", live_path)
     return features.compute(panel)
 
 

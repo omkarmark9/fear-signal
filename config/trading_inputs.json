@@ -6,7 +6,7 @@
   "trade_ohlcv.parquet": "6cae3d1d6851cb7c2222d311ed439b2b6089f640def2172d71a58769055cfa25",
   "dev.parquet": "0f2b346ccd07c4058087e55b9482eccc281e4a1e006da46b6a10bd9f173e023d",
   "holdout.parquet": "ffd8fdef1d17bec6c702fa79ae062f27ea9b639acffad10c9547739d320b114b",
-  "live.parquet": "05a147d96d9c1249409426e50f214569af34d00cb9e8f900444cc43a7dde8dfd"
+  "live_frozen_20261127.parquet": "05a147d96d9c1249409426e50f214569af34d00cb9e8f900444cc43a7dde8dfd"
  },
- "note": "pit_* and trade_ohlcv.parquet as declared in research/trading/candidates.md; dev/holdout/live.parquet (the fear panel for r, sigma, x, eligibility) added before the dev run after the pre-backtest audit (SC-5). trading-placebo, trading-dev and trading-holdout refuse on any mismatch."
+ "note": "pit_* and trade_ohlcv.parquet as declared in research/trading/candidates.md. The fear panel (dev, holdout and a frozen byte copy of live.parquet as of the declaration) was added before the dev run, after the pre-backtest audit (SC-5, SP-5). trading-placebo, trading-dev and trading-holdout refuse on any mismatch; `fearsignal live` may refresh live.parquet freely."
 }

@@ -45,7 +45,8 @@ def family_status() -> dict:
         return out
     sel = json.loads(protocol.SELECTED.read_text())["families"]
     hpath = protocol.OUT / "holdout" / "holdout_results.json"
-    hold = json.loads(hpath.read_text()) if hpath.exists() else {}
+    # a read counts only if it was made under the committed selection (audit SP-6)
+    hold = json.loads(hpath.read_text()) if protocol.holdout_matches_selection() else {}
     for k in ("SR", "ND"):
         s = sel[k]
         o = {"chosen": s["chosen"], "adopted": s["adopted"]}
@@ -53,7 +54,9 @@ def family_status() -> dict:
         if not s["adopted"]:
             o.update(tier=0, why="not adopted on dev")
         elif h is None:
-            o.update(tier=0, why="holdout not read")
+            o.update(tier=0, why="holdout not read under the committed selection")
+        elif h.get("status") != "confirmation read":
+            o.update(tier=0, why="no confirmation read")
         elif h["stats"]["mean_daily"] <= 0:
             o.update(tier=0, why="holdout disagrees")
         elif h["stats"]["t"] < 1:
@@ -63,7 +66,7 @@ def family_status() -> dict:
         out[k] = o
     r = sel["RF"]
     h = hold.get(f"RF.{r['chosen']}")
-    confirmed = bool(h and h.get("confirmed"))
+    confirmed = bool(h and h.get("confirmed") and h.get("status") == "confirmation read")
     out["RF"] = {"chosen": r["chosen"], "adopted": r["adopted"], "state": "ON" if confirmed else "OFF",
                  "why": "adopted and confirmed on 2026" if confirmed else
                  ("not adopted on dev" if not r["adopted"] else "not confirmed on 2026")}
@@ -96,6 +99,10 @@ def _mark(v: registry.Variant, rows: pd.DataFrame, rf, prices: engine.Prices, ca
     col = {c: j for j, c in enumerate(prices.adj_close.columns)}
     out = []
     sgn = 1.0 if v.side == "long" else -1.0
+    # audit SP-3: realised outcomes inside the 2026 holdout stay hidden until the holdout has
+    # been read under the committed selection (the read is the only sanctioned look)
+    from . import gates
+    hide_until = None if protocol.holdout_matches_selection() else gates.HOLDOUT[1]
     for r in rows.itertuples():
         t = pos[pd.Timestamp(r.date)]
         entry = calendar.offset(cal, dates[t], 1)
@@ -109,7 +116,9 @@ def _mark(v: registry.Variant, rows: pd.DataFrame, rf, prices: engine.Prices, ca
                "u": round(float(rf.u.iloc[t, j]), 2), "g_seg": round(float(rf.g_seg.iloc[t, j]), 2),
                "M_pct": round(float(rf.M_pct.iloc[t]), 2), "status": "pending", "ret": None, "excess": None}
         e = t + 1
-        if e <= last and np.isfinite(ao[e, j]):
+        if hide_until is not None and dates[t] <= hide_until:
+            rec["status"] = "outcome hidden until the holdout read"
+        elif e <= last and np.isfinite(ao[e, j]):
             x_end = min(t + 1 + v.H, last)
             closed = t + 1 + v.H <= last
             px_end = ao[t + 1 + v.H, j] if closed else ac[x_end, j]
