@@ -316,3 +316,23 @@ def test_calendar_time_series_equal_weights_open_positions():
     rb1 = (90 / 100 - 1) / 3
     assert ct.iloc[23] == pytest.approx(((0 - rb0) + (-0.10 - rb1)) / 2)
     assert r.daily["ct_n_open"].iloc[23] == 2 and ct.iloc[10] == 0.0
+
+
+def test_ols_cluster_matches_hand_formula_and_reduces_to_hc1():
+    from fearsignal.trading import gates
+    rng = np.random.default_rng(10)
+    n = 200
+    g = np.repeat(np.arange(40), 5)
+    x = rng.normal(size=n) + np.repeat(rng.normal(size=40), 5)
+    y = 0.5 * x + rng.normal(size=n) + np.repeat(rng.normal(size=40), 5)
+    X = np.column_stack([np.ones(n), x])
+    r = gates.ols_cluster(y, X, g)
+    b = np.linalg.lstsq(X, y, rcond=None)[0]
+    np.testing.assert_allclose(r["b"], b)
+    # singleton clusters give White's HC1
+    r1 = gates.ols_cluster(y, X, np.arange(n))
+    e = y - X @ b
+    XtX_inv = np.linalg.inv(X.T @ X)
+    hc1 = XtX_inv @ (X.T * e ** 2) @ X @ XtX_inv * n / (n - 2)
+    np.testing.assert_allclose(r1["se"], np.sqrt(np.diag(hc1)), rtol=1e-10)   # G/(G-1)(n-1)/(n-k) = n/(n-k)
+    assert r["clusters"] == 40

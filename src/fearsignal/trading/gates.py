@@ -81,3 +81,24 @@ def one_se_choice(stats: list[dict]) -> int:
     b = int(np.argmax(means))
     floor = means[b] - stats[b]["se_daily"]
     return int(np.flatnonzero(means >= floor)[0])
+
+
+def ols_cluster(y: np.ndarray, X: np.ndarray, groups: np.ndarray) -> dict:
+    """OLS with cluster-robust (CR1) standard errors; clusters = signal days.
+
+    V = (X'X)^-1 [sum_g X_g' e_g e_g' X_g] (X'X)^-1 x G/(G-1) x (n-1)/(n-k).
+    """
+    y = np.asarray(y, float)
+    X = np.asarray(X, float)
+    n, k = X.shape
+    XtX_inv = np.linalg.inv(X.T @ X)
+    b = XtX_inv @ X.T @ y
+    e = y - X @ b
+    _, gi = np.unique(groups, return_inverse=True)
+    G = gi.max() + 1
+    S = np.zeros((G, k))
+    np.add.at(S, gi, X * e[:, None])
+    meat = S.T @ S
+    V = XtX_inv @ meat @ XtX_inv * (G / (G - 1)) * ((n - 1) / (n - k))
+    se = np.sqrt(np.diag(V))
+    return {"b": b, "se": se, "t": b / se, "n": n, "clusters": int(G)}
