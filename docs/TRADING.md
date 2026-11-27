@@ -39,8 +39,8 @@ before the signature and robustness gates.
 
 | family | chosen | gate series | event excess | calibrated SPA p | signatures | 25 bps / delay | verdict |
 |---|---|---|---|---|---|---|---|
-| SR, systemic reversal (long) | SR1 | −3.4 bp/day, t −0.86 | −0.30% per 5 sessions (490 events) | 1.00 | S1 ✗, S2 ✓, S3 ✗ | ✗ | **not adopted** |
-| ND, news drift (bearish information) | ND1 | +17.5 bp/day, t 2.54 | +2.32% per 20 sessions (145 events); clustered t 1.80 by day, 1.57 by episode | 0.020 (0.057 on the 1/H series) | N1 ✓, N2 ✓, N3 ✓ | ✓ | **adopted, marginally** |
+| SR, systemic reversal (long) | SR1 | calendar-time −3.4 bp/day, t −0.86 | −0.30% per 5 sessions (490 events) | 1.00 | S1 ✗, S2 ✓, S3 ✗ | ✗ | **not adopted** |
+| ND, news drift (bearish information) | ND1 | calendar-time +17.5 bp/day, t 2.54 | +2.32% per 20 sessions (145 events); clustered t 1.80 by day, 1.57 by episode | 0.020 (0.057 on the 1/H series) | N1 ✓, N2 ✓, N3 ✓ | ✓ | **adopted, marginally** |
 | RF, de-risking overlay | RF1 | variance ratio 0.842; utility +2.7 bp/day | — | (not a Holm family) | A1 ✓, A2 ✓, A3 ✓ | ✓ | **adopted, on one episode** |
 
 **SR.** All four variants are negative against both the beta-adjusted
@@ -59,7 +59,7 @@ even worse.
   - names that became 2026's big winners hurt it rather than help it.
 - **Against it:**
   - the per-event t is 1.6–1.8 clustered, not 2.5;
-  - removing 2 of the 145 events (INTC on 2024-04-03, ALAB on 2025-09-24) takes the calibrated SPA p to 0.136, outside Holm;
+  - the pass on gate (b) hinges on single names. Dropping any one of ALAB (2025-09-24), AEHR (2025-01-14), MU (2024-06-27) or BIDU (2024-10-03) lifts the calibrated SPA p to 0.06–0.11, outside Holm. Gate (a), t ≥ 1, holds for every single removal (t 1.88–2.95);
   - the effect is concentrated: software and semicap supply 89% of the per-event sum, and 2024 is stronger than 2025 (t 2.54 against 1.12);
   - the declared dose prediction in v failed: the most displaced third drifted least, 0.40% against 3.31%. That also undercuts ND's declared Tier-3 condition.
 - **Partly seen in advance:** the earlier exploratory event study had already computed outcomes that overlap 94 of ND's 145 dev events (56% share the event day), and ND's edge sits in those events (+3.31% against +0.51%). See the caveats.
@@ -76,9 +76,9 @@ even worse.
 
 | family | 2026 | verdict |
 |---|---|---|
-| ND1 (confirmation read) | +6.4 bp/day, t 0.61; +2.08% per event (54 events) | "agrees" (mean > 0) with t < 1: **Tier 1 (pilot)**, by the declared rule. The read itself is uninformative; see below. |
+| ND1 (confirmation read) | calendar-time +6.4 bp/day, t 0.61; +2.08% per event (54 events, clustered t 1.0) | "agrees" (mean > 0) with t < 1: **Tier 1 (pilot)**, by the declared rule. The read itself is uninformative; see below. |
 | RF1 (confirmation read) | variance ratio 0.992; utility −2.7 bp/day (−0.8 s.e.); CVaR −5.9% against −5.6%; drawdown −35.8% against −34.0% | **not confirmed: OFF** |
-| SR1 (descriptive) | +19.8 bp/day, t 2.09; +0.36% per event (299 events) | **Tier 0**: failed dev |
+| SR1 (descriptive) | calendar-time +19.8 bp/day, t 2.09; +0.36% per event (299 events, clustered t 0.5–0.8) | **Tier 0**: failed dev |
 
 **Why ND's 2026 read confirms nothing:**
 - 40% of random-name draws on the same days also "agree";

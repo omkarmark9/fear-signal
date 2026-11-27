@@ -35,3 +35,19 @@ the live ND action and the description of every result.
 - ND's same-stock-adjusted excess: +1.64% (dev), +1.27% (2026).
 - SR's dev failure, under every variation.
 - RF's 2026 failure, at γ = 2, 5, 10 and 20, at 25 bps, with a delay, and against the causal static mix.
+
+## Independent recomputation
+
+Run with trading/engine.py, gates.py and backtest.py replaced by stub modules
+that raise on use, so none of their code executed. It reproduced exactly:
+- every event list, for SR1–SR4 and ND1–ND3;
+- every dev and 2026 mean (differences around 1e-17), every daily CSV
+  (within rounding), the robustness runs, the signatures and the betas
+  (6e-15);
+- RF's exposure path and statistics;
+- ND's calibrated SPA_c p (0.0200).
+
+| id | finding | disposition |
+|---|---|---|
+| RC-1 | The docs put the calendar-time t next to per-event means. Per event, ND's t is 1.80 by day and 1.57 by episode on dev, against a calendar-time 2.54. SR's 2026 per-event t is 0.81 / 0.51, against 2.09. | Fixed. Both statistics are now labelled. |
+| RC-2 | ND's pass on gate (b) hinges on single names. Dropping ALAB (2025-09-24) gives calibrated p 0.107; AEHR 0.071; MU 0.067; BIDU 0.060. Gate (a) holds for every removal. | Added to TRADING.md and the README. |
