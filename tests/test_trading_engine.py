@@ -175,3 +175,30 @@ def test_black_scholes_parity_iv_round_trip_and_delta_strike():
     k30 = op.strike_for_delta(S, T, v, "put", -0.30)
     assert op.delta(S, k30, T, v, "put") == pytest.approx(-0.30, abs=1e-6)
     assert np.isnan(op.implied_vol(0.0, S, K, T, "call"))
+
+
+def test_vectorised_paths_match_the_scalar_reference_with_gaps():
+    rng = np.random.default_rng(4)
+    T, N = 40, 6
+    ac = 100 * np.exp(np.cumsum(rng.normal(0, 0.02, (T, N)), axis=0))
+    ao = ac * np.exp(rng.normal(0, 0.01, (T, N)))
+    ac[12:15, 2] = np.nan          # halted mid-hold
+    ac[10, 3] = np.nan             # no close on the entry day
+    ao[16, 4] = np.nan             # no exit open
+    J = np.arange(N)
+    v = engine._paths(ao, ac, 10, 16, J)
+    ref = np.array([engine._value_path(ao[:, j], ac[:, j], 10, 16) for j in J])
+    np.testing.assert_allclose(v, ref, atol=1e-14)
+
+
+def test_basket_cache_gives_identical_results():
+    rng = np.random.default_rng(5)
+    T, N = 60, 5
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.02, (T, N)), axis=0))
+    p = _prices(close)
+    sig = pd.DataFrame({"date": p.dates[5:40], "ticker": "S2"})
+    cache = {}
+    a = engine.run_cohorts(sig, p, H=4, cache=cache)
+    b = engine.run_cohorts(sig.assign(ticker="S2"), p, H=4, cache=cache)
+    pd.testing.assert_frame_equal(a.daily, b.daily)
+    assert len(cache) == len(a.cohorts) == 31     # days 5-8 lack 10 sessions of volume history

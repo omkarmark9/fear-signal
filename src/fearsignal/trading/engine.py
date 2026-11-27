@@ -92,18 +92,32 @@ def _value_path(ao: np.ndarray, ac: np.ndarray, e: int, x: int) -> np.ndarray:
     return v
 
 
+def _paths(ao: np.ndarray, ac: np.ndarray, e: int, x: int, J: np.ndarray) -> np.ndarray:
+    """``_value_path`` for several columns at once: an (len(J), x - e + 1) array."""
+    entry = ao[e, J]
+    c = ac[e:x][:, J]
+    filled = pd.DataFrame(c).ffill().to_numpy()
+    filled = np.where(np.isfinite(filled), filled, entry[None, :])
+    o = ao[x, J]
+    o = np.where(np.isfinite(o), o, filled[-1])
+    return (np.vstack([filled, o[None, :]]) / entry[None, :]).T
+
+
 def tradable(prices: Prices) -> np.ndarray:
     """T x N: has a close and is liquid at t (both known at the close of t)."""
     return np.isfinite(prices.adj_close.to_numpy(float)) & prices.liquid().to_numpy(bool)
 
 
 def run_cohorts(signals: pd.DataFrame, prices: Prices, H: int, cost_bps: float = 10.0,
-                delay: int = 1, side: str = "long", start=None, end=None) -> Result:
+                delay: int = 1, side: str = "long", start=None, end=None,
+                cache: dict | None = None) -> Result:
     """Backtest cohort signals.
 
     signals: rows (date, ticker[, weight]); ``date`` is the signal session t.
     Entry is the open of t+delay and exit the open of t+delay+H. A cohort runs
     only if its exit session exists and its signal date is within [start, end].
+    ``cache`` (a dict, shared across calls on the same prices) memoises the
+    basket cohort, which does not depend on the signal.
     """
     if side not in ("long", "short_info"):
         raise ValueError(side)
@@ -147,9 +161,14 @@ def run_cohorts(signals: pd.DataFrame, prices: Prices, H: int, cost_bps: float =
         if not names:
             continue
         w = np.asarray(w) / np.sum(w)
-        bpaths = np.array([_value_path(ao[:, j], ac[:, j], e, x) for j in univ])
-        paths = np.array([_value_path(ao[:, j], ac[:, j], e, x) for j in names])
-        bval = np.concatenate([[1.0], bpaths.mean(axis=0)])
+        key = (t, delay, H)
+        if cache is not None and key in cache:
+            bval = cache[key]
+        else:
+            bval = np.concatenate([[1.0], _paths(ao, ac, e, x, univ).mean(axis=0)])
+            if cache is not None:
+                cache[key] = bval
+        paths = _paths(ao, ac, e, x, np.asarray(names))
         gval = np.concatenate([[1.0], w @ paths])
         nval = gval.copy()
         nval[1:] *= (1 - c)                              # entry cost, carried
