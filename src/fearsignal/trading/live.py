@@ -182,7 +182,13 @@ def main(n_days: int = 6) -> dict:
            "next_session_actions": acts,
            "rf_exposure": {str(k.date()): float(v) for k, v in E.items()},
            "data": {k: v for k, v in report.items() if k != "history_bars_filled"}}
-    path = LIVE_OUT / f"live_{prices.dates[-1].date()}.json"
+    # append-only: a record already written for this close is never overwritten
+    base = LIVE_OUT / f"live_{prices.dates[-1].date()}"
+    path, k = base.with_suffix(".json"), 1
+    while path.exists():
+        k += 1
+        path = LIVE_OUT / f"{base.name}_r{k}.json"
+    rec["revision"] = k
     path.write_text(json.dumps(rec, indent=1, default=str) + "\n")
     print("\nnext-session actions:", json.dumps(acts, indent=1, default=str))
     print("wrote", path)

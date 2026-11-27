@@ -15,9 +15,16 @@ panel, not from searching backtests.
     data from 2024 onward.
   - They knew how selection would work.
 * **What they were forbidden.**
-  - To look at any return that followed a signal in 2024–2026, so the
-    declaration could not be fitted to outcomes.
+  - To compute or look at any return that followed a signal in
+    2024–2026.
   - To write anything in the repository.
+
+  They were, however, given the aggregate result of an earlier
+  exploratory event study, and two of them cite it. Its outcome windows
+  overlap 65% of ND's dev events, and ND's dev edge sits in exactly those
+  events. So the declaration was not fitted to outcomes by the
+  designers, but it was not made in ignorance of them either (see
+  `candidates.md`).
 * **What they did.** They read the code and docs and computed event counts
   from signals only. Their scripts compute same-day and trailing
   quantities, never forward returns. These scripts were audited.

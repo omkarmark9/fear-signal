@@ -39,14 +39,15 @@ to validate.
 
 A second model reads the fear index's outputs at each close and decides
 what to trade at the next open: AI stocks only, long only, options within
-level-2 approval. Its rules came from an independent design panel and
+level-2 approval. Sizing and option choice are declared but not yet wired
+into the live report. Its rules came from an independent design panel and
 were declared before any backtest (`research/trading/`). They were audited,
 selected on 2024–2025 and read once on 2026.
 
 | family | 2024–25 (dev) | 2026 (one read) | status |
 |---|---|---|---|
-| ND: stock-specific news gap-down on a calm day → trails β × the AI basket for 20 sessions (bearish information) | +2.3% per event (clustered t 1.6–1.8), calibrated SPA p 0.02; marginal: dropping any one of 4 single events puts it outside Holm | +2.1% per event (clustered t 1.0; calendar-time t 0.6); uninformative, as 40% of random names also "agree" | **Tier 1 (pilot, dev evidence only)**: rotate out of a newly flagged name into the AI basket for 20 sessions; open windows mean "do not add" |
-| SR: buy the most displaced names after systemic fear days | −0.3% per event, t −0.9 | +0.4% per event from 2 news jumps; median −0.06% | Tier 0: failed dev |
+| ND: stock-specific news gap-down on a calm day → trails β × the AI basket for 20 sessions (bearish information) | +2.3% per event (clustered t 1.6–1.8); calibrated SPA p 0.02 on the calendar-time series, 0.057 on the 1/H series; marginal: dropping any one of 4 single events puts it outside Holm, and the events an earlier study never touched show no effect | +2.1% per event (clustered t 1.0; calendar-time t 0.6); uninformative, as 40% of random names also "agree" | **Tier 1 (pilot, dev evidence only)**: rotate out of a newly flagged name into the AI basket for 20 sessions; open windows mean "do not add" |
+| SR: buy the most displaced names after systemic fear days | −0.3% per event, t −0.9 | +0.4% per event (median −0.06%, two news jumps); calendar-time t 2.1 from thin sessions | Tier 0: failed dev, and 2026 cannot select it |
 | RF: cut basket exposure when market fear is high | variance −16%, almost all from April 2025 | variance −1%, tails worse | OFF: not confirmed |
 
 **No rule has reached high conviction.** The model says so, and it shows

@@ -2,8 +2,9 @@
 
 Model 1, the fear model, measures how afraid the AI stocks are. Model 2
 reads model 1's outputs at every close and decides what to trade at the
-next open: which names, how much, for how long, and whether shares or
-options. It trades only the 134 names in the universe, long only, with
+next open: which names and for how long. Declared rules also set how much
+and whether to use shares or options, but those two are not yet wired
+into the live report. It trades only the 134 names in the universe, long only, with
 options limited to level-2 approval: long calls, long puts, cash-secured
 puts and covered calls.
 
@@ -18,8 +19,14 @@ is shown as information (Tier 0).
 ## Results (2026-11-27)
 
 **Today the trading model issues no high-conviction trade.** One family,
-ND, is at Tier 1 (pilot), and it stands on its 2024–25 evidence alone. Its
-live use is a **rotation**: when a new signal fires, sell the flagged
+ND, is at Tier 1 (pilot). That is the declared tier rule applied
+mechanically, and the evidence behind it is thin:
+- its 2024–25 edge is marginal;
+- that edge sits entirely in events an earlier exploratory study had
+  already looked at;
+- the 2026 read is uninformative.
+
+Its live use is a **rotation**: when a new signal fires, sell the flagged
 name at the next open and hold the rest of the AI basket in its place for
 20 sessions. No family reached Tier 2 or 3. An independent results review
 (`research/trading/review.md`) reproduced every number below exactly from
@@ -49,20 +56,22 @@ the 52nd percentile, so its selection carried no information. The S2
 contrast "passes" only because the same rule on non-systemic days did
 even worse.
 
-**ND: real on dev, but marginal.**
+**ND: adopted on dev, marginally.**
 - **For it:**
-  - against random names drawn on the same days, it sits at the 99.3rd percentile;
-  - it holds at 50 bps (t 1.93), with β = 1 (t 2.74) and with a one-day delay (t 2.10);
+  - against random names drawn on the same days, it sits at the 99.3rd percentile on the calendar-time series and the 96th per event;
+  - it holds at 50 bps (calendar-time t 1.93), with β = 1 (t 2.74) and with a one-day delay (t 2.10);
   - the drift is gradual: 0.67% accrues by the close of session 2;
-  - it needs the news gap: 2.32% against 1.23% without one;
-  - it survives the same-stock baseline (+1.64%);
-  - names that became 2026's big winners hurt it rather than help it.
+  - news-gap events drifted more than no-gap events (2.32% against 1.23%), though the difference has t 0.6;
+  - it survives the same-stock baseline (+1.64%).
 - **Against it:**
-  - the per-event t is 1.6–1.8 clustered, not 2.5;
+  - the per-event t is 1.80 clustered by day and 1.57 by episode. The 2.54 is the calendar-time series, which gives a lone open position full weight;
   - the pass on gate (b) hinges on single names. Dropping any one of ALAB (2025-09-24), AEHR (2025-01-14), MU (2024-06-27) or BIDU (2024-10-03) lifts the calibrated SPA p to 0.06–0.11, outside Holm. Gate (a), t ≥ 1, holds for every single removal (t 1.88–2.95);
-  - the effect is concentrated: software and semicap supply 89% of the per-event sum, and 2024 is stronger than 2025 (t 2.54 against 1.12);
-  - the declared dose prediction in v failed: the most displaced third drifted least, 0.40% against 3.31%. That also undercuts ND's declared Tier-3 condition.
-- **Partly seen in advance:** the earlier exploratory event study had already computed outcomes that overlap 94 of ND's 145 dev events (56% share the event day), and ND's edge sits in those events (+3.31% against +0.51%). See the caveats.
+  - the effect is concentrated: software and semicap supply 89% of the per-event sum;
+  - by year, the calendar-time t is 2.54 in 2024 and 1.12 in 2025, but per event the two years are alike (+2.44% and +2.22%);
+  - two declared predictions failed:
+    - the most displaced third drifted least (0.40% against 3.31%), which also undercuts ND's declared Tier-3 condition;
+    - the second half of the window carried 30% of the drift, against a prediction of at least 40%.
+- **Partly seen in advance, and that is where the edge is.** The earlier exploratory event study had computed 20-session outcomes for windows that overlap 94 of ND's 145 dev events. Those 94 earn +3.31% (t 1.97). **The 51 events it never touched earn +0.51% (t 0.24), indistinguishable from zero.** By shared event day the split is +3.69% against +0.59%. See the caveats.
 
 **RF.** Its dev pass rests on one episode:
 - without April 2025 the variance ratio is 0.954;
@@ -90,11 +99,13 @@ even worse.
 The Tier-1 label is the declared tier mechanically applied. It is a pilot
 on dev evidence, not a confirmation.
 
-**SR's 2026 gain comes from two news jumps:** APP (+70%) and SIMO (+54%),
-both through overnight gaps inside the hold. Without them the per-event
-mean is −0.06%. The median is −0.06%, and the clustered t is 0.5–0.8. So
-SR shows no per-event edge in either period, and nothing here justifies a
-new SR version.
+**SR's 2026 gain depends on which statistic you read.**
+- **Per event, there is nothing:** +0.36%; without two news jumps (APP +70%, SIMO +54%) it is −0.06%; the median is −0.06%; the clustered t is 0.5–0.8.
+- **The calendar-time gate series is stronger:** +19.8 bp/day, and +14.2 bp/day (t 1.45) even without APP and SIMO. It sits at about the 98th percentile against random names on the same days. 90% of it comes from about 33 thin sessions with 3 or fewer open positions, the same lone-position weighting that makes ND's 2026 read uninformative.
+
+Either way, 2026 cannot select SR: it failed on dev, and a holdout that
+picks rules is no longer a holdout. A new SR version would need its own
+declaration and a prospective test.
 
 **RF's 2026 failure is not a reversal.** Its 0.99 ratio matches dev with
 April 2025 left out (0.95). It fails at every γ, at 25 bps, with a delay
@@ -102,11 +113,12 @@ and against the causal static mix.
 
 ### What the results mean
 
-* **The one signal with evidence is bearish, and it is a rotation.** On
+* **The one adopted signal is bearish, and it is a rotation.** On
   2024–25, a stock that gapped down on its own news on a calm day trailed
-  β × the AI basket by about 2% over the next 20 sessions, an effect that
-  random names do not produce. That payoff is selling the name and
-  holding the basket. Selling to cash would have earned nothing: −0.52%
+  β × the AI basket by about 2% over the next 20 sessions. Random names on
+  the same days rarely do that, but the events the earlier study never
+  touched show no effect, so treat it as a hypothesis under test. Its
+  payoff is selling the name and holding the basket. Selling to cash would have earned nothing: −0.52%
   per event on dev, +0.42% in 2026, because the basket rose meanwhile. A
   sell started inside an already-open window was never tested. So live:
   - a new ND signal means rotating out of the name, if it is held, at the
@@ -118,9 +130,10 @@ and against the causal static mix.
 ### Caveats
 
 * **Hindsight-chosen universe.** These are 2026's AI winners. That biases
-  long rules up. It works against bearish rules like ND, and the data
-  agree: the later big winners hurt ND. It also means only the
-  prospective log is a clean test.
+  long rules up, and a priori it works against bearish rules like ND,
+  because names that kept falling after bad news are under-represented.
+  A split within the universe cannot test this: one cut favours it, and
+  others don't. Only data after 2026-11-27 is a clean test.
 * **Neither test sample is pristine for ND.** The exploratory event study
   (commit 9ead1bb, before this model existed) measured 20-session outcomes
   after Z ≥ 2.5 episodes. Those overlap 65% of ND's dev events and 48% of
@@ -128,9 +141,22 @@ and against the causal static mix.
   was also touched by that study.
 * **Sample sizes.** ND has 145 dev and 54 holdout events. RF's dev pass is
   one crash.
-* **Options.** No option trade is allowed at the current tiers. In a
-  $10,000 account a cash-secured put is usually impossible anyway: one
-  contract ties up 100 × the strike.
+* **Options and sizing are declared, not yet live.**
+  - `trading-live` prints tickets, tiers and windows. It does not yet
+    choose instruments or sizes: `options.py` and `sizing.py` implement
+    the declared rules, but the live report doesn't call them.
+  - No option trade is allowed at the current tiers anyway.
+  - SR's cash-secured-put check against real expired contracts was never
+    run, because SR was not adopted.
+  - ND's declared covered-call alternative is not offered. Writing a call
+    keeps the stock, which is not the rotation that was tested.
+  - In a $10,000 account a cash-secured put is usually impossible: one
+    contract ties up 100 × the strike.
+* **No prospective test is declared yet for model 2.** The declared
+  sequential guard (suspend a family whose running mean falls 2 s.e.
+  below dev after every 25 closed events) and the demotion rule are not
+  yet implemented. The live records are kept append-only, so each run's
+  tickets stay on file as they were issued.
 
 ## What model 2 reads from model 1
 
@@ -150,9 +176,11 @@ model; the two agree to about 0.05 on the M_pct scale in late 2026.
 
 ## The declared families (`research/trading/`)
 
-Three independent designers proposed eight families without looking at
-any post-signal return. Their lenses were empirical asset pricing, risk
-management and options practice. A judge declared three, with ten
+Three independent designers proposed eight families. Their lenses were
+empirical asset pricing, risk management and options practice. They
+computed no post-signal return themselves. They were, however, given the
+aggregate result of an earlier exploratory event study. Its outcomes
+overlap 65% of ND's dev windows (see Caveats). A judge declared three, with ten
 variants in total. `candidates.md` holds every rule and threshold.
 
 * **SR, systemic-shock liquidity reversal (long).**
@@ -174,12 +202,18 @@ variants in total. `candidates.md` holds every rule and threshold.
 ## Protocol
 
 1. **Declaration.** It was committed (4341c9b) before any rule was run. The
-   implementation reproduces every one of the judge's signal-side event
-   counts exactly.
+   implementation reproduced every one of the judge's signal-side event
+   counts exactly, until the audit's half-day fix changed the 2026 SR
+   counts.
 2. **Pre-backtest audit.** Four independent auditors (spec, look-ahead,
-   accounting, statistics) worked under a no-returns rule. Ten minor issues
-   were found and fixed before the dev run (`research/trading/audit.md`).
-   The largest was a mislabelled half-day (2026-07-02).
+   accounting, statistics) worked under a no-returns rule. They found 15
+   issues, 4 of them major, all fixed before the dev run
+   (`research/trading/audit.md`):
+   - AC-1: the calendar-time series under-invested on turnover days, which
+     changed every gate statistic;
+   - SP-1 to SP-3: protocol locks.
+   Among the minor fixes, correcting a mislabelled half-day (2026-07-02)
+   changed the 2026 SR counts to 299/276/151/446.
 3. **Placebo calibration.** Each declared variant kept its real signal
    days and names per day, but the names were drawn at random. The gate
    was run on 300 such worlds. Its family-wise false-adoption rate is
@@ -192,7 +226,9 @@ variants in total. `candidates.md` holds every rule and threshold.
 5. **Holdout, 2026-01-02..2026-11-27, read once.** It is unlocked by the
    hash of the committed selection. It is not pristine: an exploratory
    event study touched 2026 with different rules.
-6. **Prospective.** Every live ticket is logged before its session.
+6. **Prospective.** Live records are written before their session and
+   never overwritten. No pass criterion for a prospective read of model 2
+   has been declared yet.
 
 ## Execution and accounting (`trading/engine.py`)
 
@@ -214,7 +250,7 @@ variants in total. `candidates.md` holds every rule and threshold.
 | 0, display | anything less than Tier 1 | none, never traded |
 | 1, pilot | adopted, and the 2026 holdout agrees | ≤ 0.25% of NAV (1-s.d. loss) |
 | 2, standard | adopted, and 2026 t ≥ 1 | ≤ 0.5% of NAV |
-| 3, high conviction | Tier 2 plus the ticket conditions: the strongest third of dev scores, M_pct ≥ 1, no earnings in the window, not a half-day | ≤ 1% of NAV |
+| 3, high conviction | Tier 2 plus the family's ticket conditions. SR: v in the dev bottom third (≤ −2.27), M_pct ≥ 1, no earnings in the window, not a half-day. ND: v ≤ −5.15 (the dev bottom third, which drifted least on dev), and for a put ρ ≤ 0.90, spread ≤ 5%, OI ≥ 500 | ≤ 1% of NAV |
 
 **Sizing**, declared and never a selection input:
 - quarter-Kelly on a shrunk per-trade IR with an N(0, 0.05²) prior;
@@ -227,11 +263,11 @@ On dev the fear model's volatility yardstick beat EWMA(0.94) on QLIKE at
 5 and 20 sessions by about 7 and 6 s.e., so sizing uses it
 (`outputs/trading/sizing_calibration.json`).
 
-**Options**, live only. SR can be expressed as a cash-secured put when
-the put's IV is at least 1.25× the model's forward volatility, after a
-real expired-contract check enables that branch. One contract ties up
-100 × the strike in cash, so in a small account most SR tickets are
-shares.
+**Options**, declared but not yet wired into `trading-live`. SR could
+be expressed as a cash-secured put when the put's IV is at least 1.25×
+the model's forward volatility, after a real expired-contract check
+enables that branch. That check never ran, because SR was not adopted.
+ND puts need Tier 2.
 
 ```bash
 fearsignal trading-placebo                 # gate calibration on placebo families
