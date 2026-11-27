@@ -161,6 +161,7 @@ def main(argv=None) -> None:
         out = pipeline.OUT / "live"
         fcd = json.loads((out / f"forecast_{a.target}.json").read_text())
         res = pipeline.live_score(fcd, a.source)
+        res["source"] = a.source
         (out / f"score_{a.target}.json").write_text(json.dumps(res, indent=2, default=float) + "\n")
         board = out / "SCOREBOARD.md"
         new = not board.exists()

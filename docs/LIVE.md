@@ -44,3 +44,27 @@ interim look. It cannot bias the pre-registered read:
 - no test statistic of `docs/PREREGISTRATION_v3.md` is computed here.
 The scoreboard reports per-session counts and Brier scores, not the
 400-session statistics.
+
+## Half-day sessions
+
+On NYSE early-close sessions the model's inputs read quiet: there are about
+3.5 hours of trading in which to make a low, but the model's σ is
+calibrated on full days. In v3's estimation window, 8 of the 9 half-days
+had at most one stock with a ≥ 3σ drop, whatever the model mean was. Each
+forecast reports `target_is_half_day` and the half-day history, so it is
+visible in advance. The count range for a half-day is still the ordinary
+one, and a half-day is not flagged unless it falls outside it.
+
+The first scored session, 2026-11-27, was a half-day:
+
+| | value |
+|---|---|
+| realized count | 1 (SNDK), against a model mean of 8.1 and a range of 0–37 |
+| market fear (M_pct) | 1.93, against a range of 1.60–3.19 |
+| Brier score | 0.0104, worse than climatology's 0.0081 |
+
+It was not flagged. The model over-forecast the drops, as expected on a
+half-day.
+Robinhood had not published its daily bar for that session when the
+forecast was scored, so it was scored on Yahoo's final bar and the score
+file records the source.

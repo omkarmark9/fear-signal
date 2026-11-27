@@ -1,0 +1,27 @@
+{
+  "target_session": "2026-11-27",
+  "realized_count_ge_3sigma": 1,
+  "count_range_90": [
+    0.0,
+    37.25
+  ],
+  "model_mean": 8.07054600514887,
+  "realized_m_pct": 1.9322055453591935,
+  "m_pct_range_90": [
+    1.599855,
+    3.19025
+  ],
+  "realized_band": "stressed",
+  "stocks_hit": [
+    "SNDK"
+  ],
+  "brier_model": 0.010376056119402986,
+  "brier_climatology": 0.008100648955223878,
+  "flags": {
+    "count_outside_90": false,
+    "market_outside_90": false
+  },
+  "flagged": false,
+  "source": "yahoo",
+  "source_note": "Scored on Yahoo's final bar: the forecast was made from Robinhood bars, but Robinhood had not published its 2026-11-27 daily bar when this was scored. The two vendors' closes agree within 0.10% on every overlap date checked."
+}
