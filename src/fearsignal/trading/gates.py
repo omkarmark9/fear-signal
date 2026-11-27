@@ -50,7 +50,7 @@ def variant_stats(x: pd.Series, start, end, block: float = BLOCK) -> dict:
     return {"n_days": n, "mean_daily": m, "se_daily": se, "t": m / se if se > 0 else 0.0,
             "ann_excess": m * 252, "ann_se": se * 252,
             "days_invested": int((s != 0).sum()),
-            "pw_block": float(spa.pw_block_length(s.to_numpy())) if n > 30 else None}
+            "pw_block": float(spa.pw_block_length(s.to_numpy())) if n > 30 and s.std() > 0 else None}
 
 
 def family_spa(D: pd.DataFrame, block: float = BLOCK, B: int = 999, R: int = 999, seed: int = 0) -> dict:

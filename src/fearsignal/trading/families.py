@@ -187,8 +187,8 @@ def sr_signature(fam, v, rf, prices, start, end, cache, runs) -> dict:
     res = runs[v.name]
     tr = event_frame(res, rf)
     out = {"n_events": int(len(tr))}
-    if tr.empty:
-        return {**out, "pass": False}
+    if len(tr) < 3:
+        return {**out, "required": {}, "reported": {}, "pass": False, "note": "fewer than 3 events"}
     s1 = _ols_intercept(tr)
     vc = dataclasses.replace(v, params={**v.params, "day": "not_systemic"})
     rc, _ = backtest.run_window(vc, rf, prices, start, end, cache=cache)
@@ -243,8 +243,8 @@ def nd_signature(fam, v, rf, prices, start, end, cache, runs) -> dict:
     res = runs[v.name]
     tr = event_frame(res, rf)
     out = {"n_events": int(len(tr))}
-    if tr.empty:
-        return {**out, "pass": False}
+    if len(tr) < 3:
+        return {**out, "required": {}, "reported": {}, "pass": False, "note": "fewer than 3 events"}
     n1 = _ols_intercept(tr)
     e_mean = float(tr["excess_net"].mean())
     p2 = partial_excess(tr, prices, 2, "short_info", end=end)

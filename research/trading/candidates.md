@@ -202,6 +202,11 @@ unlocked by the SHA-256 of the committed `config/trading_selected.json`.
 - **Strong:** t ≥ 1.
 - **Not pristine:** an exploratory event study touched 2026 with different rules (buying Z ≥ 2.5 and M ≥ 2 on raw returns).
 
+**Families not adopted on dev** (added before any dev result existed). The
+1-SE-chosen variant is still read once on 2026, as a descriptive figure.
+It cannot raise the family above Tier 0. RF's chosen variant is read the
+same way, and only an adopted RF can be confirmed.
+
 **Tiers.** Only Tier 3 is "high conviction":
 
 | tier | requires | risk budget cap |

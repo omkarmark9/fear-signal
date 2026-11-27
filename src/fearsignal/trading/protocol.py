@@ -82,3 +82,39 @@ def jsonable(o):
 def write_json(path, obj) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(jsonable(obj), indent=1) + "\n")
+
+
+DECLARED = ("research/trading/candidates.md", "research/trading/declaration.json",
+            "src/fearsignal/trading/families.py")
+
+
+def declaration_commit() -> str:
+    """The commit that last changed the declaration; refuses if any declared file is dirty or untracked."""
+    import subprocess
+    for rel in DECLARED:
+        tracked = subprocess.run(["git", "ls-files", "--error-unmatch", rel], cwd=ROOT, capture_output=True)
+        if tracked.returncode != 0:
+            raise HoldoutLocked(f"{rel} is not committed")
+        dirty = subprocess.run(["git", "status", "--porcelain", "--", rel], cwd=ROOT,
+                               capture_output=True, text=True).stdout.strip()
+        if dirty:
+            raise HoldoutLocked(f"{rel} has uncommitted changes")
+    out = subprocess.run(["git", "log", "-n1", "--format=%H", "--", *DECLARED], cwd=ROOT,
+                         capture_output=True, text=True).stdout.strip()
+    return out
+
+
+def check_dev_once(rerun_reason: str | None) -> None:
+    if SELECTED.exists() and not rerun_reason:
+        raise RuntimeError("the dev selection has already been run; pass a rerun reason to run it again")
+
+
+def log_dev(commit: str, reason: str | None) -> None:
+    log = OUT / "dev" / "RUNLOG.md"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    new = not log.exists()
+    with open(log, "a") as fh:
+        if new:
+            fh.write("# Trading dev-selection run log\n\n| when (UTC) | declaration commit | reason |\n|---|---|---|\n")
+        when = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        fh.write(f"| {when} | {commit[:12]} | {reason or 'first run'} |\n")

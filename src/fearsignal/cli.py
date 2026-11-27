@@ -16,6 +16,13 @@
     fearsignal forecast --target D          next-session forecasts, saved before the session
     fearsignal score-forecast --target D    score a saved forecast; append to the scoreboard
     fearsignal latest [--top N]             latest market and stock readings
+
+    trading model (model 2; docs/TRADING.md)
+    fearsignal trading-data --end-exclusive D   OHLCV and point-in-time fear signals 2024+
+    fearsignal trading-placebo [--reps N]   placebo calibration of the selection gate
+    fearsignal trading-dev                  dev selection 2024-2025 (once; writes config/trading_selected.json)
+    fearsignal trading-holdout --sha256 H   the single 2026 read of the selection
+    fearsignal trading-live [--days N]      both models on recent sessions, and the next session's tickets
 """
 
 from __future__ import annotations
@@ -76,6 +83,18 @@ def main(argv=None) -> None:
     sf.add_argument("--source", choices=["yahoo", "robinhood"], default="robinhood")
     lt = sub.add_parser("latest")
     lt.add_argument("--top", type=int, default=15)
+    td = sub.add_parser("trading-data")
+    td.add_argument("--end-exclusive", required=True)
+    tp = sub.add_parser("trading-placebo")
+    tp.add_argument("--reps", type=int, default=300)
+    tp.add_argument("--workers", type=int, default=4)
+    tv = sub.add_parser("trading-dev")
+    tv.add_argument("--rerun-reason", default=None)
+    th = sub.add_parser("trading-holdout")
+    th.add_argument("--sha256", required=True)
+    th.add_argument("--rerun-reason", default=None)
+    tl = sub.add_parser("trading-live")
+    tl.add_argument("--days", type=int, default=6)
     a = ap.parse_args(argv)
 
     if a.cmd == "download-dev":
@@ -179,6 +198,64 @@ def main(argv=None) -> None:
         last = st["date"].max()
         print(mk.tail(10).to_string())
         print(st[st.date == last].sort_values("Z", ascending=False).head(a.top).to_string(index=False))
+    elif a.cmd.startswith("trading-"):
+        _trading(a)
+
+
+def _trading(a) -> None:
+    import pandas as pd
+    from .trading import backtest, market_data, pit, placebo, protocol
+    out = protocol.OUT
+    if a.cmd == "trading-data":
+        market_data.download(end_exclusive=a.end_exclusive)
+        pit.save(pit.build())
+        print(json.dumps(protocol.input_manifest(), indent=1))
+    elif a.cmd == "trading-placebo":
+        commit = protocol.declaration_commit()
+        rf, prices = backtest.load_inputs()
+        res = placebo.calibrate(backtest.placebo_spec(rf, prices), reps=a.reps, workers=a.workers)
+        res.update(declaration_commit=commit, inputs=protocol.input_manifest())
+        protocol.write_json(out / "placebo.json", res)
+        print(json.dumps(res, indent=1))
+    elif a.cmd == "trading-dev":
+        commit = protocol.declaration_commit()
+        protocol.check_dev_once(a.rerun_reason)
+        dev = backtest.run_dev()
+        d = out / "dev"
+        d.mkdir(parents=True, exist_ok=True)
+        for k, f in dev["families"].items():
+            f["daily"].to_csv(d / f"daily_{k}.csv", float_format="%.8g")
+        rfe = dev["RF"]
+        pd.DataFrame({n: rfe["variants"][n]["base"]["d"] for n in rfe["variants"]}).to_csv(
+            d / "daily_RF_d.csv", float_format="%.8g")
+        pd.DataFrame({n: rfe["variants"][n]["E"] for n in rfe["variants"]}).to_csv(d / "RF_exposure.csv")
+        res = backtest.strip(dev)
+        res["RF"]["variants"] = {n: {k: backtest.strip(v) for k, v in rv.items() if k != "E"}
+                                 for n, rv in rfe["variants"].items()}
+        res["RF"].pop("sigma_hat", None)
+        res["declaration_commit"] = commit
+        protocol.write_json(d / "dev_results.json", res)
+        protocol.write_json(protocol.SELECTED, backtest.selection_from_dev(dev, commit))
+        protocol.log_dev(commit, a.rerun_reason)
+        print(json.dumps(json.loads(protocol.SELECTED.read_text()), indent=1))
+    elif a.cmd == "trading-holdout":
+        protocol.check_holdout_unlock(a.sha256, a.rerun_reason)
+        sel = json.loads(protocol.SELECTED.read_text())
+        res = backtest.run_holdout(sel)
+        h = out / "holdout"
+        h.mkdir(parents=True, exist_ok=True)
+        for k, v in res.items():
+            if "daily" in v:
+                v["daily"].to_csv(h / f"daily_{k}.csv", float_format="%.8g")
+                v["trades"].to_csv(h / f"trades_{k}.csv", index=False, float_format="%.6g")
+        clean = {k: backtest.strip(v) for k, v in res.items()}
+        clean["_meta"] = {"selection_sha256": a.sha256, "inputs": protocol.input_manifest()}
+        protocol.write_json(h / "holdout_results.json", clean)
+        protocol.log_holdout(a.sha256, "2026-11-27", a.rerun_reason)
+        print(json.dumps(clean, indent=1))
+    elif a.cmd == "trading-live":
+        from .trading import live
+        live.main(a.days)
 
 
 if __name__ == "__main__":

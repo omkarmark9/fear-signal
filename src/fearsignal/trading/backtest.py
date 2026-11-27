@@ -141,3 +141,73 @@ def same_stock_baseline(rf: signals.RuleFeatures, prices: engine.Prices, H: int,
         tot[m] += ex[m]
         cnt[m] += 1
     return pd.Series(np.where(cnt > 0, tot / np.maximum(cnt, 1), np.nan), index=prices.adj_close.columns)
+
+
+# ---------------------------------------------------------------- orchestration
+
+def load_inputs():
+    """Point-in-time rule features and prices, as used by every backtest."""
+    inp = signals.build()
+    rf = signals.rule_features(inp)
+    return rf, inp.prices
+
+
+def placebo_spec(rf, prices) -> list[dict]:
+    """Each Holm family's variants with their REAL signal timing (for placebo.calibrate)."""
+    from . import families as F
+    out = []
+    for fam in F.HOLM_FAMILIES:
+        out.append({"id": fam.id, "side": fam.variants[0].side,
+                    "variants": [{"name": v.name, "signals": registry.entries(v, rf), "H": v.H, "delay": 1,
+                                  "series": v.series} for v in fam.variants]})
+    return out
+
+
+def run_dev(B: int = 999, R: int = 999, seed: int = 0) -> dict:
+    """Dev selection for SR and ND, and RF's adoption path, on 2024-01-02..2025-12-31."""
+    from . import families as F
+    rf, prices = load_inputs()
+    res = dev_selection(F.HOLM_FAMILIES, F.SIGNATURES, rf, prices, B=B, R=R, seed=seed)
+    rfe = F.rf_evaluate(rf, prices, *gates.DEV)
+    res["RF"] = rfe
+    return res
+
+
+def selection_from_dev(dev: dict, declaration_commit: str) -> dict:
+    """What config/trading_selected.json records: every family's chosen variant and status."""
+    fams = {}
+    for k, f in dev["families"].items():
+        fams[k] = {"chosen": f["chosen"], "adopted": f["adopted"], "gates": f["gates"],
+                   "spa_p_calibrated": f["spa"]["p_c_calibrated"],
+                   "chosen_stats": f["variants"][f["chosen"]]}
+    rfe = dev["RF"]
+    fams["RF"] = {"chosen": rfe["chosen"], "adopted": rfe["adopted"], "criteria": rfe["criteria"],
+                  "chosen_stats": {k: v for k, v in rfe["variants"][rfe["chosen"]]["base"].items() if k != "d"}}
+    return {"declaration_commit": declaration_commit, "dev_window": dev["window"],
+            "inputs": dev["inputs"], "families": fams,
+            "holdout_rule": "agrees: mean daily excess > 0; strong: t >= 1. A family not adopted on dev is read "
+                            "descriptively and stays Tier 0. RF confirmed only if adopted and A1, A2 hold on 2026."}
+
+
+def run_holdout(selection: dict) -> dict:
+    from . import families as F
+    rf, prices = load_inputs()
+    byname = {v.id: v for fam in F.HOLM_FAMILIES for v in fam.variants}
+    chosen = [byname[f"{k}.{s['chosen']}"] for k, s in selection["families"].items() if k != "RF"]
+    out = holdout_read(chosen, rf, prices)
+    for v in chosen:
+        st = selection["families"][v.family]
+        out[v.id]["status"] = "confirmation read" if st["adopted"] else "descriptive (not adopted on dev)"
+    rs = selection["families"]["RF"]
+    E = F.rf_weights(rs["chosen"], rf.M_pct, F.har_forecast(engine.basket_legs(prices)["cc"]), rf.half_day)
+    legs = engine.basket_legs(prices)
+    s, e = gates.HOLDOUT
+    b = F.rf_stats(E, legs, s, e)
+    c25 = F.rf_stats(E, legs, s, e, cost_bps=25.0)
+    d2 = F.rf_stats(E, legs, s, e, delay=2)
+    a1 = b["var_ratio"] <= 0.85
+    a2 = all(r["mean_d"] >= -0.5 * r["se_d"] for r in (b, c25, d2))
+    out["RF." + rs["chosen"]] = {"stats": {k: v for k, v in b.items() if k != "d"}, "A1": bool(a1), "A2": bool(a2),
+                                 "confirmed": bool(rs["adopted"] and a1 and a2),
+                                 "status": "confirmation read" if rs["adopted"] else "descriptive (not adopted on dev)"}
+    return out
