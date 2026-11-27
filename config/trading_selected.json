@@ -1,0 +1,98 @@
+{
+ "declaration_commit": "7965c7afa8270adf8c3b17e3390f988ce2a8b378",
+ "dev_window": [
+  "2024-01-02",
+  "2025-12-31"
+ ],
+ "inputs": {
+  "pit_signals.parquet": "b02560aa774022b180b4b512d160ce6a1411e7c2e46073d09c16dce243cc0096",
+  "pit_market.parquet": "18d389b8095c5b4391da753593a9e84e99ea47ece7aee9583726e73bc3b104bb",
+  "pit_refits.json": "65b2ba587c748a1148005d6c910e4af7c2f2aa61a613e21f0e8f4440217c9257",
+  "trade_ohlcv.parquet": "6cae3d1d6851cb7c2222d311ed439b2b6089f640def2172d71a58769055cfa25",
+  "dev.parquet": "0f2b346ccd07c4058087e55b9482eccc281e4a1e006da46b6a10bd9f173e023d",
+  "holdout.parquet": "ffd8fdef1d17bec6c702fa79ae062f27ea9b639acffad10c9547739d320b114b",
+  "live_frozen_20261127.parquet": "05a147d96d9c1249409426e50f214569af34d00cb9e8f900444cc43a7dde8dfd"
+ },
+ "families": {
+  "SR": {
+   "chosen": "SR1",
+   "adopted": false,
+   "gates": {
+    "a_t_ge_1": false,
+    "b_spa_holm": false,
+    "c_signature": false,
+    "d_robustness": false
+   },
+   "spa_p_calibrated": 1.0,
+   "chosen_stats": {
+    "n_days": 502,
+    "mean_daily": -0.00034060688491009304,
+    "se_daily": 0.0003966052761095355,
+    "t": -0.8588057331239923,
+    "ann_excess": -0.08583293499734344,
+    "ann_se": 0.09994452957960294,
+    "days_invested": 349,
+    "pw_block": 1.5080189013571037,
+    "n_events": 490,
+    "n_signal_days": 122,
+    "mean_event_excess": -0.0029625432797493936
+   }
+  },
+  "ND": {
+   "chosen": "ND1",
+   "adopted": true,
+   "gates": {
+    "a_t_ge_1": true,
+    "b_spa_holm": true,
+    "c_signature": true,
+    "d_robustness": true
+   },
+   "spa_p_calibrated": 0.02002002002002002,
+   "chosen_stats": {
+    "n_days": 502,
+    "mean_daily": 0.0017491972899528173,
+    "se_daily": 0.0006879590012190253,
+    "t": 2.5425894375294695,
+    "ann_excess": 0.44079771706810994,
+    "ann_se": 0.17336566830719438,
+    "days_invested": 486,
+    "pw_block": 3.357111996429743,
+    "n_events": 145,
+    "n_signal_days": 104,
+    "mean_event_excess": 0.023241741964393638
+   }
+  },
+  "RF": {
+   "chosen": "RF1",
+   "adopted": true,
+   "criteria": {
+    "A1_var_ratio_le_0_85": true,
+    "A2_non_inferior_10_25_delay": true,
+    "A3_cvar_and_maxdd_no_worse": true
+   },
+   "chosen_stats": {
+    "E_bar": 0.8670318725099602,
+    "mean_d": 0.00026909257651702056,
+    "se_d": 0.00022279408868167543,
+    "t_d": 1.2078084212615519,
+    "var_ratio": 0.8418295681869747,
+    "cvar95_net": -0.03935698346840287,
+    "cvar95_static": -0.045242596741552746,
+    "maxdd_net": -0.27012101574463343,
+    "maxdd_static": -0.31406489066208765,
+    "timing_of_mean": 5.910833794630253e-05,
+    "mean_d_gamma2": 0.0001810193985978203,
+    "mean_d_gamma10": 0.0004158812063823542,
+    "sharpe_net": 1.548295691436818,
+    "sharpe_basket_100": 1.320260854616109,
+    "reduced_sessions": 141,
+    "n_days": 502
+   }
+  }
+ },
+ "holdout_rule": "agrees: mean daily excess > 0; strong: t >= 1. A family not adopted on dev is read descriptively and stays Tier 0. RF confirmed only if adopted and A1, A2 hold on 2026.",
+ "code": {
+  "head": "745cc7c67d012445b7255b90ec1ffc7faedbc502",
+  "src_tree": "faf352a0bfc3759e5e0122a479ce29d6230ddab2"
+ }
+}
