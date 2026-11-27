@@ -27,7 +27,10 @@ from ..frozen import ROOT
 
 OUT = ROOT / "outputs" / "trading"
 SELECTED = ROOT / "config" / "trading_selected.json"
-INPUT_FILES = ("pit_signals.parquet", "pit_market.parquet", "pit_refits.json", "trade_ohlcv.parquet")
+INPUT_FILES = ("pit_signals.parquet", "pit_market.parquet", "pit_refits.json", "trade_ohlcv.parquet",
+               # the fear panel that r, sigma, x and eligibility are recomputed from
+               "dev.parquet", "holdout.parquet", "live.parquet")
+INPUTS_LOCK = ROOT / "config" / "trading_inputs.json"
 
 
 def input_manifest() -> dict:
@@ -118,3 +121,18 @@ def log_dev(commit: str, reason: str | None) -> None:
             fh.write("# Trading dev-selection run log\n\n| when (UTC) | declaration commit | reason |\n|---|---|---|\n")
         when = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
         fh.write(f"| {when} | {commit[:12]} | {reason or 'first run'} |\n")
+
+
+def check_inputs() -> dict:
+    """Refuse unless every input matches the committed lock (config/trading_inputs.json).
+
+    The first four hashes are the ones declared in research/trading/candidates.md. The
+    fear-panel files were added before the dev run, after the pre-backtest audit.
+    """
+    lock = json.loads(INPUTS_LOCK.read_text())["sha256"]
+    now = input_manifest()
+    bad = {k: (lock.get(k), now.get(k)) for k in INPUT_FILES if lock.get(k) != now.get(k)}
+    if bad:
+        raise HoldoutLocked(f"inputs differ from config/trading_inputs.json: {sorted(bad)}")
+    frozen.committed_spec_hash(INPUTS_LOCK)          # the lock itself must be committed and clean
+    return now

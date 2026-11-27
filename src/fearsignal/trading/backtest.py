@@ -20,6 +20,7 @@ holdout_read: the selected variants on 2026-01-02 .. 2026-11-27, once.
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Callable
 
 import pandas as pd
@@ -47,6 +48,7 @@ def run_window(v: registry.Variant, rf: signals.RuleFeatures, prices: engine.Pri
 def evaluate_family(fam: registry.Family, rf, prices, start, end, cache: dict,
                     signature: Callable | None, B: int, R: int, seed: int) -> dict:
     cols, stats, runs, sigs = {}, [], {}, {}
+    reported = {}
     for v in fam.variants:
         sig = registry.entries(v, rf)
         res, x = run_window(v, rf, prices, start, end, cache=cache, sig=sig)
@@ -57,6 +59,15 @@ def evaluate_family(fam: registry.Family, rf, prices, start, end, cache: dict,
                   mean_event_excess=float(res.trades["excess_net"].mean()) if len(res.trades) else None)
         stats.append(st)
         runs[v.name], sigs[v.name] = res, sig
+        # reported only: the 1/H-cohort series and the plain-basket (beta = 1) benchmark
+        coh = gates.variant_stats(gates.window(res.daily["excess_net"], start, end), start, end)
+        plain = dataclasses.replace(v, beta_benchmark=False)
+        rp, xp = run_window(plain, rf, prices, start, end, cache=cache, sig=sig)
+        reported[v.name] = {"cohort_1_over_H_series": {k: coh[k] for k in ("mean_daily", "se_daily", "t")},
+                            "plain_basket": {**{k: gates.variant_stats(xp, start, end)[k]
+                                                for k in ("mean_daily", "se_daily", "t")},
+                                             "mean_event_excess": float(rp.trades["excess_net"].mean())
+                                             if len(rp.trades) else None}}
     D = pd.DataFrame(cols).fillna(0.0)
     sp = gates.family_spa(D, B=B, R=R, seed=seed)
     k = gates.one_se_choice(stats)
@@ -68,6 +79,7 @@ def evaluate_family(fam: registry.Family, rf, prices, start, end, cache: dict,
     sig_out = signature(fam, v, rf, prices, start, end, cache, runs) if signature else {"pass": True}
     return {"title": fam.title, "holm_family": fam.holm,
             "variants": {fv.name: s for fv, s in zip(fam.variants, stats)},
+            "reported_by_variant": reported,
             "spa": sp, "chosen": v.name, "chosen_t": stats[k]["t"], "robustness": robust,
             "signature": sig_out, "daily": D}
 

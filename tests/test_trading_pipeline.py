@@ -129,3 +129,32 @@ def test_rf_state_machines():
     assert e2.iloc[1] == 1.0 and e2.iloc[6] == pytest.approx(0.5) and e2.iloc[7] == pytest.approx(0.75)
     hd.iloc[3] = True
     assert F.rf_weights("RF1", mp, sh, hd).iloc[3] == 0.5     # half-day keeps the previous exposure
+
+
+def test_rf2_switches_on_at_a_half_day_close_but_keeps_exposure():
+    """Audit SC-3: 'switches on at ANY close with M_pct >= 1.5'; a half-day keeps E."""
+    idx = pd.bdate_range("2024-01-02", periods=6)
+    mp = pd.Series([0.2, 0.3, 1.8, 1.2, 1.2, 0.5], index=idx)
+    sh = pd.Series([0.02, 0.02, 0.02, 0.04, 0.04, 0.04], index=idx)
+    hd = pd.Series([False, False, True, False, False, False], index=idx)
+    e = F.rf_weights("RF2", mp, sh, hd)
+    # expanding median of sigma_hat on day 3 is 0.02 -> target 0.5; day 4 median 0.02 -> 0.5;
+    # day 5: state switches off (M_pct < 1.0) and the staircase applies that day
+    assert e.tolist() == [1.0, 1.0, 1.0, 0.5, 0.5, 0.75]
+
+
+def test_empty_basket_days_are_nan_not_zero():
+    """Audit SC-2: a session with no tradable name has no basket return."""
+    _, prices = _world()
+    legs = engine.basket_legs(prices)
+    assert legs.loc[legs["n"] == 0, "cc"].isna().all()
+    assert (legs.loc[legs["n"] == 0, ["on", "intraday"]] == 0).all().all()
+
+
+def test_execution_prices_respect_universe_listing_dates():
+    """Audit SC-4: pre-listing rows (OTC prints, SPAC shells) never enter the basket."""
+    from fearsignal import universe
+    p = engine.Prices.load()
+    for t, d in universe.table()["trade_start"].dropna().items():
+        before = p.adj_close.index < pd.Timestamp(d)
+        assert p.adj_close.loc[before, t].isna().all() and p.adj_open.loc[before, t].isna().all()

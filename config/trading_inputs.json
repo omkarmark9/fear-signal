@@ -1,0 +1,12 @@
+{
+ "sha256": {
+  "pit_signals.parquet": "b02560aa774022b180b4b512d160ce6a1411e7c2e46073d09c16dce243cc0096",
+  "pit_market.parquet": "18d389b8095c5b4391da753593a9e84e99ea47ece7aee9583726e73bc3b104bb",
+  "pit_refits.json": "65b2ba587c748a1148005d6c910e4af7c2f2aa61a613e21f0e8f4440217c9257",
+  "trade_ohlcv.parquet": "6cae3d1d6851cb7c2222d311ed439b2b6089f640def2172d71a58769055cfa25",
+  "dev.parquet": "0f2b346ccd07c4058087e55b9482eccc281e4a1e006da46b6a10bd9f173e023d",
+  "holdout.parquet": "ffd8fdef1d17bec6c702fa79ae062f27ea9b639acffad10c9547739d320b114b",
+  "live.parquet": "05a147d96d9c1249409426e50f214569af34d00cb9e8f900444cc43a7dde8dfd"
+ },
+ "note": "pit_* and trade_ohlcv.parquet as declared in research/trading/candidates.md; dev/holdout/live.parquet (the fear panel for r, sigma, x, eligibility) added before the dev run after the pre-backtest audit (SC-5). trading-placebo, trading-dev and trading-holdout refuse on any mismatch."
+}

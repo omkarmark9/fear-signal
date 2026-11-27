@@ -20,10 +20,16 @@ NYSE_HOLIDAYS = pd.to_datetime([
 
 
 def sessions(known: pd.DatetimeIndex, n_future: int = 80) -> pd.DatetimeIndex:
-    """Known sessions followed by the next ``n_future`` exchange sessions."""
+    """Known sessions followed by the next ``n_future`` exchange sessions.
+
+    Refuses to extend past the end of the holiday and early-close tables, because a
+    session there could be mis-dated or a half-day could go unflagged."""
+    from ..forecast import HALF_DAYS_COVER_THROUGH
     last = known[-1]
     days = pd.bdate_range(last + pd.Timedelta(days=1), periods=n_future * 2)
     fut = days[~days.isin(NYSE_HOLIDAYS)][:n_future]
+    if len(fut) and fut[-1] > min(HALF_DAYS_COVER_THROUGH, NYSE_HOLIDAYS.max() + pd.offsets.YearEnd(0)):
+        raise ValueError("the NYSE holiday / early-close tables do not cover these sessions; extend them")
     return known.append(fut)
 
 

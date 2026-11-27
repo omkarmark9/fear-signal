@@ -49,8 +49,12 @@ The scoreboard reports per-session counts and Brier scores, not the
 
 On NYSE early-close sessions the model's inputs read quiet: there are about
 3.5 hours of trading in which to make a low, but the model's σ is
-calibrated on full days. In v3's estimation window, 8 of the 9 half-days
-had at most one stock with a ≥ 3σ drop, whatever the model mean was. Each
+calibrated on full days. In v3's estimation window, all 7 half-days had
+at most one stock with a ≥ 3σ drop (realized 0, 0, 1, 0, 0, 0, 0, against
+model means of 2.3–6.5). An earlier version of the list wrongly included
+2026-07-02. That was a full NYSE session, because July 3 was the observed
+holiday and only the bond market closed early. It had 32 such drops. The
+list was corrected on 2026-11-27, and it adds 2026-12-24. Each
 forecast reports `target_is_half_day` and the half-day history, so it is
 visible in advance. The count range for a half-day is still the ordinary
 one, and a half-day is not flagged unless it falls outside it.

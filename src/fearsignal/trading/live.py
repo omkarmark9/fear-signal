@@ -27,7 +27,10 @@ LIVE_OUT = protocol.OUT / "live"
 def state(source: str = "yahoo"):
     from .. import pipeline
     mk, st, sig, feat, report = pipeline._live_state(source)
-    prices = engine.Prices.load()
+    prices = engine.Prices.load(live=True)
+    if prices.dates[-1] != feat.obs.dates[-1]:
+        raise RuntimeError(f"price cache ends {prices.dates[-1].date()} but the fear panel ends "
+                           f"{feat.obs.dates[-1].date()}: refresh both (fearsignal live; fearsignal trading-data)")
     inp = signals.from_live(mk, st, feat, prices)
     rf = signals.rule_features(inp, feat)
     return mk, st, rf, prices, report

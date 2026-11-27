@@ -16,11 +16,14 @@ import pandas as pd
 from .. import universe
 from ..data import RAW
 
-PATH = RAW / "trade_ohlcv.parquet"
+PATH = RAW / "trade_ohlcv.parquet"            # the declared backtest input (hash-locked)
+LIVE_PATH = RAW / "trade_ohlcv_live.parquet"  # live refreshes; never read by a backtest
 COLS = ("open", "high", "low", "close", "adj_close", "volume")
 
 
-def download(start: str = "2023-01-03", end_exclusive: str = "2026-11-28") -> pd.DataFrame:
+def download(start: str = "2023-01-03", end_exclusive: str = "2026-11-28", live: bool = True) -> pd.DataFrame:
+    """Fetch OHLCV. By default it writes the LIVE file; only an explicit live=False
+    rewrites the hash-locked backtest input."""
     import yfinance as yf
 
     tickers = universe.tickers()
@@ -37,13 +40,21 @@ def download(start: str = "2023-01-03", end_exclusive: str = "2026-11-28") -> pd
         sub.index.name = "date"
         frames.append(sub.assign(ticker=t).reset_index())
     long = pd.concat(frames, ignore_index=True)
-    long.to_parquet(PATH, index=False)
+    long.to_parquet(LIVE_PATH if live else PATH, index=False)
     return long
 
 
-def load() -> dict[str, pd.DataFrame]:
-    """Wide frames (dates x tickers): adj_open, adj_close, close, volume, dollar_volume."""
-    long = pd.read_parquet(PATH)
+def load(path=None) -> dict[str, pd.DataFrame]:
+    """Wide frames (dates x tickers): adj_open, adj_close, close, volume, dollar_volume.
+
+    Rows before a ticker's universe trade_start are dropped (OTC prints, SPAC shells,
+    when-issued spin-offs), exactly as data.to_panel does for the fear panel. They
+    are not the security the universe holds and must not enter the benchmark basket.
+    """
+    long = pd.read_parquet(path or PATH)
+    long["date"] = pd.to_datetime(long["date"])
+    for t, d in universe.table()["trade_start"].dropna().items():
+        long = long[~((long["ticker"] == t) & (long["date"] < pd.Timestamp(d)))]
     w = {c: long.pivot(index="date", columns="ticker", values=c).reindex(columns=universe.tickers())
          for c in COLS}
     factor = w["adj_close"] / w["close"]

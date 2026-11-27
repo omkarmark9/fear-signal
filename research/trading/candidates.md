@@ -235,3 +235,23 @@ implementation and is never a selection input.
 4. **RF2 switch-off day.** On the day the stress state switches off (M_pct < 1.0), the staircase step applies that same day.
 5. **Reported diagnostics** use only dev windows that end by 2025-12-31. For example, permanence at session 20 drops events whose 20th session is in 2026.
 6. **Placebo benchmark.** The placebo uses the plain basket, because random names have exactly zero expected excess against it. The real gate uses the beta benchmark as declared.
+
+## Amendments before the dev run (from the pre-backtest audit)
+
+An independent audit workflow checked the committed implementation against
+`declaration.json` through four lenses: spec conformance, look-ahead,
+accounting, and statistics and protocol. It had one hard rule: compute no
+return that follows a signal on real data. Each finding below was verified
+and fixed before the placebo, the dev run or the holdout read existed.
+The audit's transcript is summarised in `research/trading/audit.md`.
+
+| id | finding | fix | effect on dev / 2026 |
+|---|---|---|---|
+| SC-1, LA-1 | The declared half-day list included 2026-07-02, but that was a full NYSE session: July 4, 2026 is a Saturday, NYSE closed on July 3, and only the bond market closed early on July 2. Its volume was 1.1× normal, against 0.3–0.7× on every true half-day. The list also omitted 2026-12-24, a real 1 pm close. | The declaration's own definition, "NYSE early close", governs, and the list is corrected. Model 1's forecast list (`forecast.HALF_DAYS`) is corrected the same way. | Dev: none, since all dev half-days are genuine. 2026 signal counts become SR1 299, SR2 276, SR3 151, SR4 446 (from 294, 272, 146, 442); ND is unchanged. |
+| SC-2 | RF's HAR fit included 10 fabricated zero basket returns from January 2023, before any name was tradable. | `basket_legs` reports no basket (NaN) on sessions with no tradable name. | RF's σ̂ moves by up to 6% in dev; RF's statistics are computed on the corrected fit. |
+| SC-3 | RF2 did not switch its stress state on at a half-day close with M_pct ≥ 1.5. The declaration says "at any close". | RF2's state can switch on at a half-day close; E is still held. | None in dev or 2026 (no such half-day); latent for live use. |
+| SC-4, LA-3 | Execution prices ignored the universe's listing dates, so TLN's OTC prints and OKLO's SPAC shell entered the benchmark basket in 2023–24. | `market_data.load` drops rows before each `trade_start`, exactly as the fear panel does. | The H1-2024 basket and RF legs. Signals are unchanged. |
+| SC-5 | The input hashes were recorded but never enforced, and a data refresh could overwrite them. | `config/trading_inputs.json` locks the four declared files plus the three fear-panel files. trading-placebo, trading-dev and trading-holdout refuse to run on any mismatch. Live price refreshes go to a separate file. | None. |
+| SC-6 | Several declared "reported" diagnostics were not produced. | Added: the plain-basket benchmark and the 1/H series for every variant; SR4's segment breakdown when SR4 beats SR1; RF's Moreira–Muir ratio, episode contributions, the delay-kept share of the variance gain, and the bootstrap Sharpe difference. | Reported only. |
+| LA-2 | No early closes were listed after 2026-11-27. | The list covers 2026-12-24 and 2027-11-26. Dating future sessions refuses to run past the tables' coverage. | Live only. |
+| LA-4 | The live report could silently misalign if the price cache and the fear panel ended on different sessions. | It refuses to run unless both end on the same session. | Live only. |

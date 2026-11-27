@@ -18,7 +18,7 @@
     fearsignal latest [--top N]             latest market and stock readings
 
     trading model (model 2; docs/TRADING.md)
-    fearsignal trading-data --end-exclusive D   OHLCV and point-in-time fear signals 2024+
+    fearsignal trading-data --end-exclusive D   refresh LIVE OHLCV (backtest inputs are hash-locked)
     fearsignal trading-placebo [--reps N]   placebo calibration of the selection gate
     fearsignal trading-dev                  dev selection 2024-2025 (once; writes config/trading_selected.json)
     fearsignal trading-holdout --sha256 H   the single 2026 read of the selection
@@ -204,14 +204,15 @@ def main(argv=None) -> None:
 
 def _trading(a) -> None:
     import pandas as pd
-    from .trading import backtest, market_data, pit, placebo, protocol
+    from .trading import backtest, market_data, placebo, protocol
     out = protocol.OUT
     if a.cmd == "trading-data":
-        market_data.download(end_exclusive=a.end_exclusive)
-        pit.save(pit.build())
-        print(json.dumps(protocol.input_manifest(), indent=1))
+        # live refresh only: the declared backtest inputs are hash-locked and never rewritten here
+        market_data.download(end_exclusive=a.end_exclusive, live=True)
+        print("wrote", market_data.LIVE_PATH)
     elif a.cmd == "trading-placebo":
         commit = protocol.declaration_commit()
+        protocol.check_inputs()
         rf, prices = backtest.load_inputs()
         res = placebo.calibrate(backtest.placebo_spec(rf, prices), reps=a.reps, workers=a.workers)
         res.update(declaration_commit=commit, inputs=protocol.input_manifest())
@@ -219,6 +220,7 @@ def _trading(a) -> None:
         print(json.dumps(res, indent=1))
     elif a.cmd == "trading-dev":
         commit = protocol.declaration_commit()
+        protocol.check_inputs()
         protocol.check_dev_once(a.rerun_reason)
         dev = backtest.run_dev()
         d = out / "dev"
@@ -239,6 +241,7 @@ def _trading(a) -> None:
         protocol.log_dev(commit, a.rerun_reason)
         print(json.dumps(json.loads(protocol.SELECTED.read_text()), indent=1))
     elif a.cmd == "trading-holdout":
+        protocol.check_inputs()
         protocol.check_holdout_unlock(a.sha256, a.rerun_reason)
         sel = json.loads(protocol.SELECTED.read_text())
         res = backtest.run_holdout(sel)

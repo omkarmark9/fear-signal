@@ -60,9 +60,10 @@ class Prices:
         return med >= MIN_DOLLAR_VOLUME
 
     @classmethod
-    def load(cls) -> "Prices":
-        from .market_data import load
-        f = load()
+    def load(cls, live: bool = False) -> "Prices":
+        """The declared backtest prices; ``live=True`` reads the live refresh if one exists."""
+        from .market_data import LIVE_PATH, load
+        f = load(LIVE_PATH if live and LIVE_PATH.exists() else None)
         return cls(f["adj_open"], f["adj_close"], f["dollar_volume"], f["close"], f["volume"])
 
 
@@ -236,12 +237,14 @@ def run_cohorts(signals: pd.DataFrame, prices: Prices, H: int, cost_bps: float =
 def basket_legs(prices: Prices) -> pd.DataFrame:
     """Equal-weight basket of names tradable at the previous close, split into
     overnight (close d-1 to open d) and intraday (open d to close d) returns.
-    (1 + on)(1 + intraday) = 1 + the basket's close-to-close return."""
+    (1 + on)(1 + intraday) = 1 + the basket's close-to-close return. A session with
+    no tradable name has no basket: cc is NaN there (on/intraday 0, i.e. cash), so a
+    volatility model fitted on cc never sees a fabricated zero return."""
     ao = prices.adj_open.to_numpy(float)
     ac = prices.adj_close.to_numpy(float)
     ok = tradable(prices)
     T = len(prices.dates)
-    on, intra, cc, n = np.zeros(T), np.zeros(T), np.zeros(T), np.zeros(T)
+    on, intra, cc, n = np.zeros(T), np.zeros(T), np.full(T, np.nan), np.zeros(T)
     for d in range(1, T):
         m = ok[d - 1] & np.isfinite(ao[d]) & np.isfinite(ac[d])
         if not m.any():

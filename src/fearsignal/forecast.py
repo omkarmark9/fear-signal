@@ -47,9 +47,16 @@ M_WINDOW = 0.30        # "similar" market days: M_pct within +-0.30
 FLAG_LEVEL = 0.90      # central range used for flags
 ALARM = (5, 20)        # 5+ flags within 20 sessions -> investigate
 
-# NYSE early-close sessions inside the estimation window (and the target).
+# NYSE early-close (1 pm) sessions, 2023-2026. 2026-07-02 is NOT one: July 4, 2026 is a
+# Saturday, NYSE closed Friday July 3 and traded a full session on July 2 (only the bond
+# market closed early); its volume was 1.11x normal against 0.32-0.63x on every true
+# half-day. Corrected 2026-11-27 after the trading model's pre-backtest audit.
 HALF_DAYS = pd.to_datetime(["2023-07-03", "2023-11-24", "2024-07-03", "2024-11-29", "2024-12-24",
-                            "2025-07-03", "2025-11-28", "2025-12-24", "2026-07-02", "2026-11-27"])
+                            "2025-07-03", "2025-11-28", "2025-12-24", "2026-11-27", "2026-12-24",
+                            # 2027: only the day after Thanksgiving (July 4 is a Sunday and
+                            # Christmas a Saturday, observed Monday July 5 and Friday Dec 24)
+                            "2027-11-26"])
+HALF_DAYS_COVER_THROUGH = pd.Timestamp("2027-12-31")     # live code refuses dates beyond this
 
 
 def history() -> tuple[pd.DataFrame, pd.Series]:

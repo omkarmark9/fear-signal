@@ -230,9 +230,15 @@ def sr_signature(fam, v, rf, prices, start, end, cache, runs) -> dict:
     rep["leave_one_cluster_out_min_mean_e"] = float(min(loo))
     rep["n_clusters"] = int(len(np.unique(cl)))
     rep["SR4_by_segment_mean_e"] = None
-    if v.params.get("beta_only"):
-        seg = signals.segments(prices.adj_close.columns)
-        rep["SR4_by_segment_mean_e"] = tr.groupby(tr["ticker"].map(seg))["excess_net"].mean().to_dict()
+    r1, r4 = runs.get("SR1"), runs.get("SR4")
+    if r1 is not None and r4 is not None and len(r4.trades) and len(r1.trades):
+        m1 = gates.window(r1.daily[v.series], start, end).mean()
+        m4 = gates.window(r4.daily[v.series], start, end).mean()
+        rep["SR4_beats_SR1"] = bool(m4 > m1)
+        if m4 > m1:                                    # declared: "if SR4 beats SR1"
+            seg = signals.segments(prices.adj_close.columns)
+            t4 = r4.trades
+            rep["SR4_by_segment_mean_e"] = t4.groupby(t4["ticker"].map(seg))["excess_net"].mean().to_dict()
     return {**out, "required": req, "reported": rep,
             "pass": all(x["pass"] for x in req.values())}
 
@@ -324,6 +330,10 @@ def rf_weights(name: str, M_pct: pd.Series, sigma_hat: pd.Series, half_day: pd.S
         mp = m.iloc[t]
         tgt = np.clip(star[t] / sh[t], 0.25, 1.0) if np.isfinite(sh[t]) and np.isfinite(star[t]) else np.nan
         if hd[t]:
+            # a half-day keeps E; but RF2's state "switches on at ANY close with M_pct >= 1.5"
+            # (it only switches off at a full-session close), as declared
+            if name == "RF2" and np.isfinite(mp) and mp >= 1.5:
+                state = True
             E[t] = e
             continue
         if name == "RF1":
@@ -390,6 +400,50 @@ def rf_stats(E: pd.Series, legs: pd.DataFrame, start, end, cost_bps: float = 10.
             "d": d}
 
 
+def _sharpe_diff_boot(a: np.ndarray, b: np.ndarray, block: float = 20.0, B: int = 2000, seed: int = 0) -> dict:
+    """Sharpe(a) - Sharpe(b) on paired daily returns, stationary-bootstrap CI
+    (a bootstrap Ledoit-Wolf 2008-style comparison)."""
+    from .. import spa
+    sh = lambda x: x.mean() / x.std(ddof=1) * np.sqrt(252)
+    d0 = sh(a) - sh(b)
+    rng = np.random.default_rng(seed)
+    idx = spa.sb_indices(len(a), block, B, rng)
+    ds = np.array([sh(a[i]) - sh(b[i]) for i in idx])
+    return {"diff": float(d0), "ci95": [float(np.quantile(ds, 0.025)), float(np.quantile(ds, 0.975))],
+            "p_two_sided": float(min(1.0, 2 * min(np.mean(ds <= 0), np.mean(ds >= 0))))}
+
+
+def rf_reported(b: dict, legs: pd.DataFrame, start, end) -> dict:
+    """RF's reported signatures (2)-(4) and the Sharpe comparison, for the chosen variant."""
+    E = b["E"]
+    out = engine.run_exposure(E, legs)
+    win = out.loc[gates.window(out["net"], start, end).index]
+    cc, w, d = win["basket"].to_numpy(float), win["w_intraday"].to_numpy(float), b["base"]["d"].to_numpy(float)
+    lo, hi = w < 1, w >= 1
+    mm = {"return_per_variance_E_lt_1": float(cc[lo].mean() / cc[lo].var(ddof=1)) if lo.sum() > 2 else None,
+          "return_per_variance_E_eq_1": float(cc[hi].mean() / cc[hi].var(ddof=1)) if hi.sum() > 2 else None}
+    runs, cur = [], []
+    for i, flag in enumerate(lo):
+        if flag:
+            cur.append(i)
+        elif cur:
+            runs.append(cur)
+            cur = []
+    if cur:
+        runs.append(cur)
+    multi = [i for r in runs if len(r) >= 10 for i in r]
+    spike = [i for r in runs if len(r) < 10 for i in r]
+    gain0 = 1 - b["base"]["var_ratio"]
+    gain2 = 1 - b["delay2"]["var_ratio"]
+    return {"moreira_muir": mm,
+            "episodes": {"n_multiweek": sum(len(r) >= 10 for r in runs), "n_spike": sum(len(r) < 10 for r in runs),
+                         "sum_d_multiweek": float(d[multi].sum()) if multi else 0.0,
+                         "sum_d_spike": float(d[spike].sum()) if spike else 0.0},
+            "delay_keeps_variance_gain": {"gain_base": float(gain0), "gain_delay2": float(gain2),
+                                          "kept_share": float(gain2 / gain0) if gain0 > 0 else None},
+            "sharpe_vs_100pct_basket": _sharpe_diff_boot(win["net"].to_numpy(float), cc)}
+
+
 def rf_evaluate(rf: signals.RuleFeatures, prices: engine.Prices, start, end) -> dict:
     """RF's declared adoption path: 1-SE on mean d (RF1, RF2, RF3 order), then A1-A3."""
     legs = engine.basket_legs(prices)
@@ -407,7 +461,8 @@ def rf_evaluate(rf: signals.RuleFeatures, prices: engine.Prices, start, end) -> 
     a1 = b["base"]["var_ratio"] <= 0.85
     a2 = all(r["mean_d"] >= -0.5 * r["se_d"] for r in (b["base"], b["cost25"], b["delay2"]))
     a3 = (b["base"]["cvar95_net"] >= b["base"]["cvar95_static"]) and (b["base"]["maxdd_net"] >= b["base"]["maxdd_static"])
-    reported = {"RF2_minus_RF3_mean_d": res["RF2"]["base"]["mean_d"] - res["RF3"]["base"]["mean_d"]}
+    reported = {"RF2_minus_RF3_mean_d": res["RF2"]["base"]["mean_d"] - res["RF3"]["base"]["mean_d"],
+                **rf_reported(b, legs, start, end)}
     return {"variants": res, "chosen": ch,
             "criteria": {"A1_var_ratio_le_0_85": bool(a1), "A2_non_inferior_10_25_delay": bool(a2),
                          "A3_cvar_and_maxdd_no_worse": bool(a3)},
