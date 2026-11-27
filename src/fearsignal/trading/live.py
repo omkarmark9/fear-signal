@@ -201,8 +201,17 @@ def next_actions(tk: pd.DataFrame, status: dict, nxt: pd.Timestamp) -> list[dict
                             "action": "none (Tier 0: SR not adopted on dev; display only)",
                             "window": f"{entry.date()} -> {exit_.date()}"})
         elif r.family == "ND" and (entry == nxt or live_window):
-            act = ("typed exit: if held, sell at the open; do not buy before the window ends"
-                   if r.tier >= 1 else "none (Tier 0)")
+            # The tested payoff is a ROTATION from the t+1 open: sell the name, hold beta x the
+            # equal-weight AI basket (or the rest of the AI book pro rata) until t+1+H. Selling to
+            # cash had no value in either sample, and a sell started mid-window was never tested
+            # (results review ROB-1), so an open window only means "do not add".
+            if r.tier < 1:
+                act = "none (Tier 0)"
+            elif entry == nxt:
+                act = ("typed exit, as a rotation: if held, sell at the open and put the proceeds into "
+                       "the rest of the AI basket until the window ends; do not buy the name before then")
+            else:
+                act = "do not add before the window ends (a sell started mid-window was not tested)"
             out.append({"ticker": r.ticker, "family": "ND", "tier": int(r.tier), "action": act,
                         "window": f"{entry.date()} -> {exit_.date()}",
                         "long_put": "not allowed below Tier 2" if r.tier < 2 else "allowed if rho <= 0.90"})

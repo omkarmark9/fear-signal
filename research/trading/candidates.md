@@ -262,3 +262,22 @@ The audit's transcript is summarised in `research/trading/audit.md`.
 | SP-5 | Locking `live.parquet` meant a routine live refresh would block the holdout read. | Backtests read a frozen byte copy, `live_frozen_20261127.parquet`, with the same hash. | None. |
 | SP-6 | Live tiers could reuse a holdout read made under a different selection. | A tier above 0, or RF ON, needs a confirmation read made under the committed selection. | Live only. |
 | LA-4 | The live report could silently misalign if the price cache and the fear panel ended on different sessions. | It refuses to run unless both end on the same session. | Live only. |
+
+## Provenance caveat (from the results review, ROB-6)
+
+The designers were forbidden to look at returns after any signal, and they
+did not. However, an exploratory event study committed before the design
+panel (9ead1bb, 2026-11-25) had already measured 20-session outcomes
+after first Z ≥ 2.5 episodes, and two designers cite its result. Those
+episodes overlap ND1's events:
+
+| | same event day | overlapping outcome window |
+|---|---|---|
+| dev | 81 of 145 (56%) | 94 of 145 (65%) |
+| 2026 | 21 of 54 | 26 of 54 |
+
+ND's dev edge sits in the overlapping events: +3.31% against +0.51%. For
+ND, "declared before any return was seen" therefore holds for the
+declared rule, but not for all of the knowledge around it. SR's overlap
+is smaller: 12% of its dev events share the day, and 27% of its windows
+overlap.

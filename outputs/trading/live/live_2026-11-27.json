@@ -589,7 +589,7 @@
    "ticker": "DT",
    "family": "ND",
    "tier": 1,
-   "action": "typed exit: if held, sell at the open; do not buy before the window ends",
+   "action": "do not add before the window ends (a sell started mid-window was not tested)",
    "window": "2026-11-04 -> 2026-12-03",
    "long_put": "not allowed below Tier 2"
   },
@@ -597,7 +597,7 @@
    "ticker": "NVDA",
    "family": "ND",
    "tier": 1,
-   "action": "typed exit: if held, sell at the open; do not buy before the window ends",
+   "action": "do not add before the window ends (a sell started mid-window was not tested)",
    "window": "2026-11-10 -> 2026-12-09",
    "long_put": "not allowed below Tier 2"
   },
@@ -605,7 +605,7 @@
    "ticker": "CRWD",
    "family": "ND",
    "tier": 1,
-   "action": "typed exit: if held, sell at the open; do not buy before the window ends",
+   "action": "do not add before the window ends (a sell started mid-window was not tested)",
    "window": "2026-11-24 -> 2026-12-23",
    "long_put": "not allowed below Tier 2"
   }
