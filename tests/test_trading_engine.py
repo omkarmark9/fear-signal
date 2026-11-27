@@ -238,3 +238,59 @@ def test_price_features_are_causal():
               lambda p: signals.gap_sigma(p, sig), lambda p: signals.relative_volume(p)):
         a, b = f(p1).iloc[:200], f(p2).iloc[:200]
         pd.testing.assert_frame_equal(a, b)
+
+
+def test_beta_one_matches_the_plain_basket_benchmark():
+    rng = np.random.default_rng(8)
+    T, N = 80, 5
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.02, (T, N)), axis=0))
+    open_ = close * np.exp(rng.normal(0, 0.01, (T, N)))
+    p = _prices(close, open_)
+    sig = pd.DataFrame({"date": np.repeat(p.dates[15:50], 2), "ticker": ["S0", "S3"] * 35})
+    a = engine.run_cohorts(sig, p, H=5)
+    b = engine.run_cohorts(sig, p, H=5, beta=pd.DataFrame(1.0, index=p.dates, columns=p.adj_close.columns))
+    pd.testing.assert_frame_equal(a.daily, b.daily)
+    pd.testing.assert_frame_equal(a.cohorts, b.cohorts)
+
+
+def test_beta_adjusted_event_excess_by_hand():
+    rng = np.random.default_rng(9)
+    T, N = 60, 4
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.02, (T, N)), axis=0))
+    open_ = close * np.exp(rng.normal(0, 0.01, (T, N)))
+    p = _prices(close, open_)
+    beta = pd.DataFrame(1.0, index=p.dates, columns=p.adj_close.columns)
+    beta.iloc[30, 1] = 1.6
+    sig = pd.DataFrame({"date": [p.dates[30]], "ticker": ["S1"]})
+    r = engine.run_cohorts(sig, p, H=4, cost_bps=0.0, beta=beta)
+    R = open_[35, 1] / open_[31, 1] - 1
+    RB = (open_[35] / open_[31]).mean() - 1
+    assert r.cohorts.iloc[0]["excess_net"] == pytest.approx(R - 1.6 * RB)
+    # daily: one name, so the benchmark on every day of the hold is 1.6 x the beta-1 benchmark
+    r1 = engine.run_cohorts(sig, p, H=4, cost_bps=0.0)
+    np.testing.assert_allclose(r.daily["benchmark"], 1.6 * r1.daily["benchmark"], atol=1e-15)
+
+
+def test_suppress_reentry_and_cap():
+    from fearsignal.trading import signals
+    idx = pd.bdate_range("2024-01-01", periods=10)
+    m = pd.DataFrame(False, index=idx, columns=["A", "B", "C"])
+    m.loc[idx[[0, 1, 2, 5]], "A"] = True          # held for H=5: signals on days 1-4 are suppressed
+    m.loc[idx[0], ["B", "C"]] = True
+    pr = pd.DataFrame(0.0, index=idx, columns=["A", "B", "C"])
+    pr.loc[idx[0]] = [-3.0, -1.0, -2.0]            # most negative first
+    out = signals.suppress_reentry(m, H=5, priority=pr, cap=2)
+    assert out.loc[idx[0]].tolist() == [True, False, True]
+    assert not out.loc[idx[1:5], "A"].any() and out.loc[idx[5], "A"]
+
+
+def test_segment_demean_uses_segment_median():
+    from fearsignal.trading import signals
+    cols = ["NVDA", "AMD", "AVGO", "MSFT"]          # three compute names, one platform
+    idx = pd.bdate_range("2024-01-01", periods=2)
+    f = pd.DataFrame([[1.0, 2.0, 6.0, 10.0], [0.0, 0.0, 0.0, 4.0]], index=idx, columns=cols)
+    el = pd.DataFrame(True, index=idx, columns=cols)
+    out = signals.segment_demean(f, el)
+    assert out.loc[idx[0], "NVDA"] == pytest.approx(1.0 - 2.0)        # compute median of 1, 2, 6
+    # MSFT's segment has one eligible name, so the all-stock median (4.0) is used
+    assert out.loc[idx[0], "MSFT"] == pytest.approx(10.0 - 4.0)

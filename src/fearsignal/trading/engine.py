@@ -66,7 +66,7 @@ class Prices:
 
 @dataclass
 class Result:
-    daily: pd.DataFrame      # net, gross, basket, excess_net, n_cohorts_active (fractions of sleeve capital)
+    daily: pd.DataFrame      # gross, net, benchmark, excess_net, n_cohorts_active (sleeve-level)
     trades: pd.DataFrame     # one row per (cohort, name)
     cohorts: pd.DataFrame    # one row per cohort
     params: dict = field(default_factory=dict)
@@ -110,7 +110,7 @@ def tradable(prices: Prices) -> np.ndarray:
 
 def run_cohorts(signals: pd.DataFrame, prices: Prices, H: int, cost_bps: float = 10.0,
                 delay: int = 1, side: str = "long", start=None, end=None,
-                cache: dict | None = None) -> Result:
+                cache: dict | None = None, beta: pd.DataFrame | None = None) -> Result:
     """Backtest cohort signals.
 
     signals: rows (date, ticker[, weight]); ``date`` is the signal session t.
@@ -118,6 +118,11 @@ def run_cohorts(signals: pd.DataFrame, prices: Prices, H: int, cost_bps: float =
     only if its exit session exists and its signal date is within [start, end].
     ``cache`` (a dict, shared across calls on the same prices) memoises the
     basket cohort, which does not depend on the signal.
+
+    ``beta`` (dates x tickers, known at t) makes the benchmark beta x basket.
+    Each name's event excess is then R_i - beta_i,t R_B. On a day the
+    cohort's benchmark return is the value-weighted mean beta of its names
+    times the basket's return. Without it, beta is 1.
     """
     if side not in ("long", "short_info"):
         raise ValueError(side)
@@ -139,7 +144,8 @@ def run_cohorts(signals: pd.DataFrame, prices: Prices, H: int, cost_bps: float =
         sig = sig.assign(weight=1.0)
     c = cost_bps / 1e4
     sgn = 1.0 if side == "long" else -1.0
-    cols_out = {k: np.zeros(T) for k in ("gross", "net", "basket", "excess_net", "n_cohorts_active")}
+    cols_out = {k: np.zeros(T) for k in ("gross", "net", "benchmark", "excess_net", "n_cohorts_active")}
+    BETA = beta.reindex(index=dates, columns=cols).to_numpy(float) if beta is not None else None
     trades, cohorts = [], []
     for d, grp in sig.groupby("date"):
         t = pos.get(d)
@@ -176,22 +182,33 @@ def run_cohorts(signals: pd.DataFrame, prices: Prices, H: int, cost_bps: float =
         rg = gval[1:] / gval[:-1] - 1
         rn = nval[1:] / nval[:-1] - 1
         rb = bval[1:] / bval[:-1] - 1
+        if BETA is None:
+            bj = np.ones(len(names))
+            beta_d = np.ones_like(rb)
+        else:
+            bj = np.nan_to_num(BETA[t, names], nan=1.0)
+            start_val = np.hstack([np.ones((len(names), 1)), paths[:, :-1]])   # value at the start of each day
+            wd = w[:, None] * start_val
+            beta_d = (wd * bj[:, None]).sum(axis=0) / wd.sum(axis=0)
+        bench = beta_d * rb
         drag = rg - rn                                   # cost per day (entry and exit days only)
-        ex = sgn * (rg - rb) - drag
+        ex = sgn * (rg - bench) - drag
         days = np.arange(e, x + 1)
         cols_out["gross"][days] += rg / H
         cols_out["net"][days] += rn / H
-        cols_out["basket"][days] += rb / H
+        cols_out["benchmark"][days] += bench / H
         cols_out["excess_net"][days] += ex / H
         cols_out["n_cohorts_active"][days] += 1.0
         rt_cost = 1 - (1 - c) ** 2
-        for j, wt, p in zip(names, w, paths):
+        RB = bval[-1] - 1
+        for j, wt, p, b in zip(names, w, paths, bj):
             trades.append({"signal_date": d, "ticker": cols[j], "weight": wt, "entry": dates[e],
-                           "exit": dates[x], "ret": p[-1] - 1, "basket_ret": bval[-1] - 1,
-                           "excess_net": sgn * (p[-1] - bval[-1]) - rt_cost})
+                           "exit": dates[x], "ret": p[-1] - 1, "basket_ret": RB, "beta": b,
+                           "excess_net": sgn * (p[-1] - 1 - b * RB) - rt_cost})
         cohorts.append({"signal_date": d, "entry": dates[e], "exit": dates[x], "n": len(names),
-                        "ret_gross": gval[-1] - 1, "ret_net": nval[-1] - 1, "basket_ret": bval[-1] - 1,
-                        "excess_net": sgn * (gval[-1] - bval[-1]) - rt_cost})
+                        "ret_gross": gval[-1] - 1, "ret_net": nval[-1] - 1, "basket_ret": RB,
+                        "beta": float(w @ bj),
+                        "excess_net": sgn * (float(w @ (paths[:, -1] - 1 - bj * RB))) - rt_cost})
     daily = pd.DataFrame(cols_out, index=dates)
     return Result(daily, pd.DataFrame(trades), pd.DataFrame(cohorts),
                   {"H": H, "cost_bps": cost_bps, "delay": delay, "side": side})

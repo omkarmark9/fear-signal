@@ -132,3 +132,57 @@ def relative_volume(prices: engine.Prices, window: int = 20) -> pd.DataFrame:
     """Same-day dollar volume over its median of the previous ``window`` sessions."""
     v = prices.dollar_volume
     return v / v.rolling(window, min_periods=15).median().shift(1)
+
+
+# ------------------------------------------------------------ rule helpers
+
+def half_days() -> pd.DatetimeIndex:
+    """NYSE early-close sessions, 2023-2026 (the fear model reads them as quiet)."""
+    from ..forecast import HALF_DAYS
+    return pd.DatetimeIndex(HALF_DAYS)
+
+
+def segments(columns) -> pd.Series:
+    from .. import universe
+    return universe.table()["segment"].reindex(list(columns))
+
+
+def segment_demean(frame: pd.DataFrame, eligible: pd.DataFrame, min_n: int = 3) -> pd.DataFrame:
+    """frame minus the median of eligible names in the same segment that day.
+    Segments with fewer than ``min_n`` eligible names that day use the median
+    of all eligible names instead."""
+    f = frame.where(eligible)
+    seg = segments(frame.columns)
+    all_med = f.median(axis=1)
+    out = pd.DataFrame(np.nan, index=frame.index, columns=frame.columns)
+    for s in seg.unique():
+        cols = seg.index[seg == s]
+        sub = f[cols]
+        n = sub.notna().sum(axis=1)
+        med = sub.median(axis=1).where(n >= min_n, all_med)
+        out[cols] = frame[cols].sub(med, axis=0)
+    return out
+
+
+def suppress_reentry(mask: pd.DataFrame, H: int, priority: pd.DataFrame | None = None,
+                     cap: int | None = None) -> pd.DataFrame:
+    """Walk forward through signal days. A name selected on day t is held for
+    the next H-1 signal days and cannot be selected again until day t+H, when
+    the old position is sold at the same open the new one would be bought. If
+    ``cap`` is set, at most ``cap`` new names per day are kept, taken in
+    ``priority`` order (smallest first)."""
+    m = mask.fillna(False).to_numpy(bool).copy()
+    T, N = m.shape
+    held_until = np.full(N, -1)
+    pr = priority.to_numpy(float) if priority is not None else None
+    for t in range(T):
+        cand = np.flatnonzero(m[t] & (held_until < t))
+        m[t] = False
+        if cand.size == 0:
+            continue
+        if cap is not None and cand.size > cap:
+            order = np.argsort(pr[t, cand], kind="stable") if pr is not None else np.arange(cand.size)
+            cand = cand[order[:cap]]
+        m[t, cand] = True
+        held_until[cand] = t + H - 1
+    return pd.DataFrame(m, index=mask.index, columns=mask.columns)
