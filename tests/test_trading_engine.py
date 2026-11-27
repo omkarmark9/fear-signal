@@ -368,3 +368,26 @@ def test_same_stock_baseline_recovers_a_constant_relative_drift():
     R0 = 1.001 ** 5 - 1
     assert base["S0"] == pytest.approx(R0 - R0 / 4, rel=1e-9)
     assert base["S1"] == pytest.approx(-R0 / 4, rel=1e-9)
+
+
+def test_sizing_primitives():
+    from fearsignal.trading import sizing
+    idx = pd.bdate_range("2024-01-01", periods=8)
+    r = pd.DataFrame({"A": [0.01, -0.02, 0.03, 0.0, 0.01, -0.01, 0.02, 0.0]}, index=idx)
+    rv = sizing.realized_var(r, 3)
+    assert rv["A"].iloc[0] == pytest.approx(0.02 ** 2 + 0.03 ** 2 + 0.0)      # r_{t+1..t+3}
+    assert np.isnan(rv["A"].iloc[-3])                                         # window runs past the end
+    assert sizing.qlike(np.array([0.04]), np.array([0.04]))[0] == pytest.approx(0.0)
+    assert sizing.qlike(np.array([0.02]), np.array([0.04]))[0] > 0
+    # posterior IR: N_eff weeks; prior sd 0.05 shrinks hard
+    e = np.array([0.02, -0.01, 0.03, 0.01])
+    d = pd.Series(pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-10", "2024-01-17"]))
+    p = sizing.ir_post(e, d)
+    assert p["N_eff"] == 3
+    irhat = e.mean() / e.std(ddof=1)
+    assert p["IR_post"] == pytest.approx(irhat * 0.0025 / (0.0025 + 1 / 3))
+    assert sizing.risk_budget(0, 0.05, 1, 0.5) == 0.0
+    assert sizing.risk_budget(2, 0.03, 1, 0.5) == pytest.approx(min(0.005, 0.25 * 0.03))
+    assert sizing.risk_budget(2, 0.03, 8, 0.55) == pytest.approx(0.005 / (1 + 7 * 0.55))   # the declared worked example
+    refits = [{"refit": "2024-01-02"}, {"refit": "2024-04-01"}]
+    assert sizing.refit_of(pd.to_datetime(["2024-01-02", "2024-03-29", "2024-04-01"]), refits) == [0, 0, 1]

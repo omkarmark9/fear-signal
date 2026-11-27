@@ -222,6 +222,8 @@ class RuleFeatures:
     share_hit2: pd.Series
     half_day: pd.Series
     M_pct: pd.Series
+    P_calm: pd.DataFrame | None = None       # for sizing's regime forecast; not used by any rule
+    P_stressed: pd.DataFrame | None = None
 
 
 def fear_features(panel=None):
@@ -267,4 +269,5 @@ def rule_features(inp: Inputs, feat=None, beta_window: int = 126, beta_min: int 
         gamma=gamma, g_seg=g_seg, g_all=g_all, relvol=relative_volume(inp.prices),
         price_ok=close >= 5.0, dv_med20=dv_med20, liquid20=liquid20.fillna(False),
         systemic=(share >= fmod.SYSTEMIC_SHARE).fillna(False), share_hit2=share,
-        half_day=hd, M_pct=inp.market["M_pct"])
+        half_day=hd, M_pct=inp.market["M_pct"],
+        P_calm=inp.wide("P_calm").where(el), P_stressed=inp.wide("P_stressed").where(el))
