@@ -74,3 +74,13 @@ the outputs, and reproduced them.
 **Skeptic votes on ROB-1.** One skeptic confirmed it against the pre-fix
 code. The other refuted it as "already fixed at HEAD", which is
 consistent with the fix.
+
+**Skeptic votes on ROB-2.** One skeptic confirmed the analysis and the
+current text, and asked that it not be reverted. It added counter-evidence
+that is now in TRADING.md: the per-event 2026 mean stays positive at
+25 bps and with a delay, and ND3 read +14.6 bp/day. The second ROB-2 vote,
+and the skeptic votes on CL-1 to CL-3, were not collected: the workflow
+was stopped once every finding had been applied. Each of those findings
+had already been reproduced twice, by the claims checker and by matching
+numbers from the overfitting critic. Their fixes only make the
+documentation more conservative.
