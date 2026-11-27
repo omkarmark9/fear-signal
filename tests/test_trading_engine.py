@@ -294,3 +294,25 @@ def test_segment_demean_uses_segment_median():
     assert out.loc[idx[0], "NVDA"] == pytest.approx(1.0 - 2.0)        # compute median of 1, 2, 6
     # MSFT's segment has one eligible name, so the all-stock median (4.0) is used
     assert out.loc[idx[0], "MSFT"] == pytest.approx(10.0 - 4.0)
+
+
+def test_calendar_time_series_equal_weights_open_positions():
+    close = _flat(T=40, N=3)
+    open_ = close.copy()
+    close[21:, 0] = 110.0          # S0 jumps on its entry day (bought at the open of 21)
+    open_[22:, 0] = 110.0
+    close[23:, 1] = 90.0           # S1 falls on its entry day (bought at the open of 23)
+    open_[24:, 1] = 90.0
+    p = _prices(close, open_)
+    sig = pd.DataFrame({"date": [p.dates[20], p.dates[22]], "ticker": ["S0", "S1"]})
+    r = engine.run_cohorts(sig, p, H=5, cost_bps=0.0)
+    ct = r.daily["ct_excess_net"]
+    # day 21: only S0 open, +10% vs a basket up 10%/3
+    assert ct.iloc[21] == pytest.approx(0.10 - 0.10 / 3)
+    # day 23: S0 and S1 open, equal weight. Each is measured against its OWN cohort's
+    # buy-and-hold basket: S0's basket (bought day 21) has drifted to weights 110:100:100,
+    # S1's (bought at day 23's open) is still 1/3 each.
+    rb0 = (110 + 90 + 100) / (110 + 100 + 100) - 1
+    rb1 = (90 / 100 - 1) / 3
+    assert ct.iloc[23] == pytest.approx(((0 - rb0) + (-0.10 - rb1)) / 2)
+    assert r.daily["ct_n_open"].iloc[23] == 2 and ct.iloc[10] == 0.0

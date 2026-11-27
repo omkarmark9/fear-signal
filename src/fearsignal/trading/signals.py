@@ -129,8 +129,9 @@ def gap_sigma(prices: engine.Prices, sigma: pd.DataFrame) -> pd.DataFrame:
 
 
 def relative_volume(prices: engine.Prices, window: int = 20) -> pd.DataFrame:
-    """Same-day dollar volume over its median of the previous ``window`` sessions."""
-    v = prices.dollar_volume
+    """Same-day share volume over its median of the previous ``window`` sessions
+    (dollar volume if share volume is not loaded)."""
+    v = prices.volume if prices.volume is not None else prices.dollar_volume
     return v / v.rolling(window, min_periods=15).median().shift(1)
 
 
@@ -186,3 +187,82 @@ def suppress_reentry(mask: pd.DataFrame, H: int, priority: pd.DataFrame | None =
         m[t, cand] = True
         held_until[cand] = t + H - 1
     return pd.DataFrame(m, index=mask.index, columns=mask.columns)
+
+
+# ------------------------------------------------------- shared rule features
+
+@dataclass
+class RuleFeatures:
+    """Everything the declared rules read, each value known at the close of t.
+
+    r, sigma, x and eligibility are deterministic transforms of prices (the
+    fear model's features), computed over the full history from 2023, so
+    betas have their 126 sessions. Z, q_next and the regime probabilities
+    come from the point-in-time refits (or frozen v3, live).
+    """
+    eligible: pd.DataFrame
+    x: pd.DataFrame
+    Z: pd.DataFrame
+    q_next: pd.DataFrame
+    P_panic: pd.DataFrame
+    sigma: pd.DataFrame
+    r: pd.DataFrame
+    rB: pd.Series
+    beta: pd.DataFrame
+    u: pd.DataFrame          # (r - beta rB) / sigma
+    v: pd.DataFrame          # u minus its segment median
+    gamma: pd.DataFrame      # overnight gap / sigma
+    g_seg: pd.DataFrame      # gamma minus its segment median
+    g_all: pd.DataFrame      # gamma minus its all-stock median
+    relvol: pd.DataFrame     # share volume / median of the previous 20 sessions
+    price_ok: pd.DataFrame   # raw close >= $5
+    liquid20: pd.DataFrame   # median dollar volume over t-20..t-1 >= $20M
+    systemic: pd.Series
+    share_hit2: pd.Series
+    half_day: pd.Series
+    M_pct: pd.Series
+
+
+def fear_features(panel=None):
+    """The fear model's deterministic features (r, sigma, x, eligibility) on the live panel."""
+    from .. import data, features
+    panel = panel if panel is not None else data.load_live_panel("yahoo")
+    return features.compute(panel)
+
+
+def rule_features(inp: Inputs, feat=None, beta_window: int = 126, beta_min: int = 100) -> RuleFeatures:
+    from .. import features as fmod
+    feat = feat if feat is not None else fear_features()
+    idx, cols = inp.dates, inp.prices.adj_close.columns
+    obs = feat.obs
+
+    def frame(a):
+        return pd.DataFrame(a, index=obs.dates, columns=list(obs.tickers)).reindex(index=idx, columns=cols)
+
+    el = frame(obs.eligible.astype(float)).fillna(0.0).astype(bool)
+    x = frame(obs.x).where(el)
+    sigma = frame(feat.sigma).where(el)
+    r = frame(feat.r)
+    rB = r.where(el).mean(axis=1)
+    RB = pd.DataFrame(np.repeat(rB.to_numpy()[:, None], len(cols), axis=1), index=idx, columns=cols).where(r.notna())
+    cov = r.rolling(beta_window, min_periods=beta_min).cov(RB)
+    var = RB.rolling(beta_window, min_periods=beta_min).var()
+    beta = (2 / 3) * (cov / var).shift(1) + 1 / 3
+    u = (r - beta.mul(rB, axis=0)) / sigma
+    gamma = np.log(inp.prices.adj_open / inp.prices.adj_close.shift(1)) / sigma
+    v = segment_demean(u, el & u.notna())
+    g_seg = segment_demean(gamma, el & gamma.notna())
+    g_all = gamma.sub(gamma.where(el).median(axis=1), axis=0)
+    close = inp.prices.close if inp.prices.close is not None else inp.prices.adj_close
+    dv = inp.prices.dollar_volume
+    liquid20 = dv.rolling(20, min_periods=15).median().shift(1) >= 20e6
+    hit2 = el & (x >= fmod.SYSTEMIC_X)
+    share = hit2.sum(axis=1) / el.sum(axis=1).replace(0, np.nan)
+    hd = pd.Series(idx.isin(half_days()), index=idx)
+    return RuleFeatures(
+        eligible=el, x=x, Z=inp.wide("Z").where(el), q_next=inp.wide("q_next").where(el),
+        P_panic=inp.wide("P_panic").where(el), sigma=sigma, r=r, rB=rB, beta=beta, u=u, v=v,
+        gamma=gamma, g_seg=g_seg, g_all=g_all, relvol=relative_volume(inp.prices),
+        price_ok=close >= 5.0, liquid20=liquid20.fillna(False),
+        systemic=(share >= fmod.SYSTEMIC_SHARE).fillna(False), share_hit2=share,
+        half_day=hd, M_pct=inp.market["M_pct"])

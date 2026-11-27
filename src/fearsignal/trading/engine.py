@@ -48,6 +48,8 @@ class Prices:
     adj_open: pd.DataFrame
     adj_close: pd.DataFrame
     dollar_volume: pd.DataFrame
+    close: pd.DataFrame | None = None       # raw (unadjusted) close, for price floors and options
+    volume: pd.DataFrame | None = None      # share volume
 
     @property
     def dates(self) -> pd.DatetimeIndex:
@@ -61,7 +63,7 @@ class Prices:
     def load(cls) -> "Prices":
         from .market_data import load
         f = load()
-        return cls(f["adj_open"], f["adj_close"], f["dollar_volume"])
+        return cls(f["adj_open"], f["adj_close"], f["dollar_volume"], f["close"], f["volume"])
 
 
 @dataclass
@@ -119,6 +121,11 @@ def run_cohorts(signals: pd.DataFrame, prices: Prices, H: int, cost_bps: float =
     ``cache`` (a dict, shared across calls on the same prices) memoises the
     basket cohort, which does not depend on the signal.
 
+    Two daily excess series are returned. ``excess_net`` gives each of the
+    last H cohorts 1/H of the capital (Jegadeesh-Titman). ``ct_excess_net``
+    is the calendar-time portfolio (Fama 1998): each day, equal weight across
+    every open position, and 0 on days with none.
+
     ``beta`` (dates x tickers, known at t) makes the benchmark beta x basket.
     Each name's event excess is then R_i - beta_i,t R_B. On a day the
     cohort's benchmark return is the value-weighted mean beta of its names
@@ -145,6 +152,7 @@ def run_cohorts(signals: pd.DataFrame, prices: Prices, H: int, cost_bps: float =
     c = cost_bps / 1e4
     sgn = 1.0 if side == "long" else -1.0
     cols_out = {k: np.zeros(T) for k in ("gross", "net", "benchmark", "excess_net", "n_cohorts_active")}
+    ct_sum, ct_n = np.zeros(T), np.zeros(T)          # calendar-time: sum and count of open positions
     BETA = beta.reindex(index=dates, columns=cols).to_numpy(float) if beta is not None else None
     trades, cohorts = [], []
     for d, grp in sig.groupby("date"):
@@ -199,6 +207,15 @@ def run_cohorts(signals: pd.DataFrame, prices: Prices, H: int, cost_bps: float =
         cols_out["benchmark"][days] += bench / H
         cols_out["excess_net"][days] += ex / H
         cols_out["n_cohorts_active"][days] += 1.0
+        # calendar-time accounting: every open position's own daily excess, equal weight per day
+        pv = np.hstack([np.ones((len(names), 1)), paths])          # (n, H+2) value at entry open = 1
+        pr = pv[:, 1:] / pv[:, :-1] - 1                             # (n, H+1) daily returns per position
+        pcost = np.zeros_like(pr)
+        pcost[:, 0] += c * (1 + pr[:, 0])                           # entry cost, as a return on the entry day
+        pcost[:, -1] += c * (1 + pr[:, -1])                         # exit cost on the exit day
+        pex = sgn * (pr - bj[:, None] * rb[None, :]) - pcost
+        ct_sum[days] += pex.sum(axis=0)
+        ct_n[days] += len(names)
         rt_cost = 1 - (1 - c) ** 2
         RB = bval[-1] - 1
         for j, wt, p, b in zip(names, w, paths, bj):
@@ -210,6 +227,8 @@ def run_cohorts(signals: pd.DataFrame, prices: Prices, H: int, cost_bps: float =
                         "beta": float(w @ bj),
                         "excess_net": sgn * (float(w @ (paths[:, -1] - 1 - bj * RB))) - rt_cost})
     daily = pd.DataFrame(cols_out, index=dates)
+    daily["ct_excess_net"] = np.where(ct_n > 0, ct_sum / np.maximum(ct_n, 1), 0.0)
+    daily["ct_n_open"] = ct_n
     return Result(daily, pd.DataFrame(trades), pd.DataFrame(cohorts),
                   {"H": H, "cost_bps": cost_bps, "delay": delay, "side": side})
 
