@@ -106,3 +106,31 @@ nothing to the news rule.
 whole rule, the StepM-rejected trials are still read on 2026 once, as
 descriptive figures. They stay at Tier 0 and become the pre-registered
 hypotheses for the prospective test.
+
+## 2026-11-28, exploration closed; declared selection applied
+
+**Rounds 6–7.**
+- E11 no-news losers bought as reversals: t −3.5 to −3.9; faded: +3.16.
+- E11 no-news winners as bearish information: +3.30.
+- Segment shocks: negative.
+- Model 1's q_next spike: about 0.
+- The unified any-shock rule (E14): only +0.05 to +1.67, and its clean
+  basket is null. The theme does not survive unification, which argues
+  that its strong members are partly products of how they were cut.
+
+**Registry.** 215 trials, 14.6 effective; StepM critical t 3.14; PBO 0.184.
+
+**StepM rejects five trials** (`outputs/trading/v2/selection.json`):
+
+| trial | t | Sharpe | DSR | other gates |
+|---|---|---|---|---|
+| E7 H 20, thr 3 | 3.17 | 2.05 | 0.70 | episode t 1.79 < 2 |
+| E7 H 40, thr 3 | 3.65 | 2.13 | 0.74 | all others pass |
+| E7 H 40, inverse vol | 3.38 | 2.04 | 0.70 | all others pass |
+| E11 winners, H 5 | 3.30 | 2.47 | 0.87 | all others pass |
+| E11F, H 10 | 3.16 | 1.82 | 0.58 | all others pass |
+
+**Selection result: NO v2 CANDIDATE.** All five fail the deflated-Sharpe
+rule (≥ 0.95). As declared above, the five are now read on 2026 once,
+descriptively. They stay at Tier 0 and become pre-registered hypotheses
+for the prospective test.
