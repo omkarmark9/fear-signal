@@ -82,7 +82,12 @@ class Ctx:
             calm = _days(_day(rf, "calm"), rf.x)
             down = (rf.x >= 2) & (rf.v <= -2) & (rf.g_seg <= -1.5)
             up = (rf.g_seg >= 1.5) & (rf.r >= rf.sigma)
-            ev = {"down": down, "up": up, "both": down | up}[rule] & names & calm
+            if rule in ("down", "up", "both"):
+                ev = {"down": down, "up": up, "both": down | up}[rule] & names & calm
+            else:                                     # earnings reactions: "earn1.5", "earn3.0", "union1.5"
+                thr = float(rule.replace("earn", "").replace("union", ""))
+                earn = earnings_sessions(self) & (rf.v.abs() >= thr) & names
+                ev = earn | ((down | up) & names & calm) if rule.startswith("union") else earn
             self._st[key] = ev.astype(float).rolling(H, min_periods=1).max().fillna(0).astype(bool)
         return self._st[key]
 
@@ -153,6 +158,37 @@ def event_rule(tr: Trial, ctx: Ctx):
         every[::5] = True
         m = (rank <= 10) & _days(pd.Series(every, index=score.index) & ~rf.half_day, rf.x)
         return m, -score, p["H"], 10, "short_info", 1
+    if tr.family == "E7":            # earnings reaction of EITHER sign as bearish information (Round 3)
+        m = names & earnings_sessions(ctx) & (rf.v.abs() >= p["thr"])
+        mc, zc = p.get("m_cond"), p.get("z_cond")      # Round 4: does model 1 modulate it?
+        if mc == "hi":
+            m = m & _days(rf.M_pct >= 1.0, rf.x)
+        elif mc == "lo":
+            m = m & _days(rf.M_pct < 1.0, rf.x)
+        if zc == "hi":
+            m = m & (rf.Z >= 2.0)
+        elif zc == "lo":
+            m = m & (rf.Z < 2.0)
+        return m, -rf.v.abs(), p["H"], 10, "short_info", 1
+    if tr.family == "E8":            # EPS surprise drift (Round 5)
+        sp = earnings_surprise(ctx)
+        good = p["side"] == "good"
+        m = names & ((sp >= p["thr"]) if good else (sp <= -p["thr"]))
+        return m, (-sp if good else sp), p["H"], 10, "long" if good else "short_info", 1
+    if tr.family == "E9":            # reaction against surprise (Round 5)
+        sp = earnings_surprise(ctx)
+        if p["case"] == "beat_drop":
+            m = names & (sp > 0) & (rf.v <= -2)
+            return m, rf.v, p["H"], 10, "short_info", 1
+        m = names & (sp < 0) & (rf.v >= 2)
+        return m, -rf.v, p["H"], 10, "long", 1
+    if tr.family == "E10":           # earnings-announcement premium: buy ahead of the report (Round 5)
+        es = earnings_sessions(ctx).to_numpy(bool)
+        m = np.zeros_like(es)
+        lead = 6                                            # signal 6 sessions before the reaction session
+        m[:-lead] = es[lead:]
+        m = pd.DataFrame(m, index=rf.x.index, columns=rf.x.columns) & names
+        return m, -rf.x.fillna(0), p["H"], 10, "long", 1
     if tr.family == "E5":            # cross-sectional fear factor
         score = (rf.Z if p["signal"] == "Z" else inputs_I(ctx)).where(names)
         asc = p["end"] == "low"
@@ -183,6 +219,21 @@ def inputs_I(ctx: Ctx) -> pd.DataFrame:
     return ctx._I
 
 
+def earnings_surprise(ctx: Ctx) -> pd.DataFrame:
+    """EPS surprise on each reaction session, (actual - estimate) / max(|estimate|, 0.05), clipped
+    to [-2, 2]. Scale-free, so the vendor's mixed split bases within a few names cancel. NaN
+    elsewhere or when either number is missing."""
+    if getattr(ctx, "_surprise", None) is None:
+        es = earnings_sessions(ctx)                       # also builds ctx._earn_rows
+        out = pd.DataFrame(np.nan, index=es.index, columns=es.columns)
+        for (i, tk), (est, act) in ctx._earn_eps.items():
+            if est is None or act is None:
+                continue
+            out.iloc[i, out.columns.get_loc(tk)] = float(np.clip((act - est) / max(abs(est), 0.05), -2, 2))
+        ctx._surprise = out
+    return ctx._surprise
+
+
 def earnings_sessions(ctx: Ctx) -> pd.DataFrame:
     """True on each name's earnings REACTION session: the report date for 'am'
     reports, the next session for 'pm' (after-close) reports. Unknown timing
@@ -197,6 +248,7 @@ def earnings_sessions(ctx: Ctx) -> pd.DataFrame:
         dates = ctx.prices.dates
         cols = ctx.prices.adj_close.columns
         m = pd.DataFrame(False, index=dates, columns=cols)
+        ctx._earn_eps = {}
         for r in rows:
             tk = r["symbol"]
             if tk not in m.columns:
@@ -209,6 +261,9 @@ def earnings_sessions(ctx: Ctx) -> pd.DataFrame:
                 i += 1 if dates[i] == d else 0            # after the close -> reacts next session
             if i < len(dates):
                 m.iloc[i, m.columns.get_loc(tk)] = True
+                eps = r.get("eps") or {}
+                num = lambda v: float(v) if v not in (None, "") else None
+                ctx._earn_eps[(i, tk)] = (num(eps.get("estimate")), num(eps.get("actual")))
         ctx.earnings = m
     return ctx.earnings
 
@@ -232,7 +287,12 @@ def run_event(tr: Trial, ctx: Ctx) -> tuple[dict, pd.Series]:
     rf, prices = ctx.rf, ctx.prices
     mask, prio, H, cap, side, delay = event_rule(tr, ctx)
     sel = signals.suppress_reentry(mask, H, priority=prio, cap=cap)
-    sig = signals.to_signals(sel)
+    w = None
+    if tr.params.get("weight") == "invvol":                 # risk parity across a cohort's names
+        w = 1.0 / ctx.stilde(H)
+    sig = signals.to_signals(sel, w)
+    if w is not None:
+        sig = sig[np.isfinite(sig["weight"]) & (sig["weight"] > 0)]
 
     def go(cost=10.0, dly=delay):
         last = gates.last_signal_date(prices.dates, H, dly, END)
@@ -529,4 +589,63 @@ def round2_trials() -> list[Trial]:
     T.append(Trial("ENS", "ensemble", {"name": "E1_E2F_all", "members": e1 + e2f}, 2))
     for rule in ("down", "up", "both"):           # long-only expression: the basket minus shocked names
         T.append(Trial("P", "portfolio", {"w": "clean_basket", "rule": rule, "H": 20}, 2))
+    return T
+
+
+def round3_trials() -> list[Trial]:
+    """Round 3: the post-news-underperformance theme (LOG.md), and its long-only expression."""
+    T = []
+    for rule in ("earn1.5", "earn3.0"):
+        for H in (20, 40):
+            T.append(Trial("P", "portfolio", {"w": "clean_basket", "rule": rule, "H": H}, 3))
+    for H in (20, 40):
+        T.append(Trial("P", "portfolio", {"w": "clean_basket", "rule": "union1.5", "H": H}, 3))
+    for H in (10, 40):
+        T.append(Trial("P", "portfolio", {"w": "clean_basket", "rule": "both", "H": H}, 3))
+    for thr in (1.5, 3.0):
+        for H in (20, 40):
+            T.append(Trial("E7", "event", {"thr": thr, "H": H}, 3))
+    e1 = [{"family": "E1", "params": {"day": d, "x": x, "g": g, "H": H}}
+          for d in ("calm", "any") for x in (2, 3) for g in (-1.5, -2.5) for H in (5, 10, 20, 40)]
+    e2f = [{"family": "E2F", "params": {"g": g, "rv": rv, "H": H}}
+           for g in (1.5, 2.5) for rv in (1.0, 2.0) for H in (5, 10, 20, 40)]
+    e4b = [{"family": "E4", "params": {"side": "bad", "thr": thr, "H": H}} for thr in (1.5, 3.0) for H in (5, 20, 40)]
+    e6 = [{"family": "E6", "params": {"H": H}} for H in (5, 10, 20, 40)]
+    e7 = [{"family": "E7", "params": {"thr": thr, "H": H}} for thr in (1.5, 3.0) for H in (20, 40)]
+    T.append(Trial("ENS", "ensemble", {"name": "news_theme", "members": e1 + e2f + e4b + e6}, 3))
+    T.append(Trial("ENS", "ensemble", {"name": "news_theme_with_E7", "members": e1 + e2f + e4b + e6 + e7}, 3))
+    return T
+
+
+def round4_trials() -> list[Trial]:
+    """Round 4: does model 1 add value to the news rule (E7)? Plus two dose checks."""
+    T = []
+    for H in (20, 40):
+        for mc in ("hi", "lo"):
+            T.append(Trial("E7", "event", {"thr": 3.0, "H": H, "m_cond": mc}, 4))
+    for zc in ("hi", "lo"):
+        T.append(Trial("E7", "event", {"thr": 3.0, "H": 40, "z_cond": zc}, 4))
+    for H in (20, 40):
+        T.append(Trial("E7", "event", {"thr": 3.0, "H": H, "weight": "invvol"}, 4))
+    for H in (20, 40):
+        T.append(Trial("E7", "event", {"thr": 4.0, "H": H}, 4))
+    T.append(Trial("E7", "event", {"thr": 3.0, "H": 60}, 4))
+    T.append(Trial("P", "portfolio", {"w": "clean_basket", "rule": "earn3.0", "H": 60}, 4))
+    return T
+
+
+def round5_trials() -> list[Trial]:
+    """Round 5: new earnings information. EPS surprise (E8), reaction against surprise (E9),
+    and the pre-announcement premium (E10). E10 uses report dates that are scheduled in
+    advance: a small look-ahead risk for dates confirmed late, disclosed in LOG.md."""
+    T = []
+    for side in ("good", "bad"):
+        for thr in (0.10, 0.25):
+            for H in (20, 40):
+                T.append(Trial("E8", "event", {"side": side, "thr": thr, "H": H}, 5))
+    for case in ("beat_drop", "miss_pop"):
+        for H in (20, 40):
+            T.append(Trial("E9", "event", {"case": case, "H": H}, 5))
+    T.append(Trial("E10", "event", {"H": 5, "through": True}, 5))     # exit at the reaction session's open
+    T.append(Trial("E10", "event", {"H": 4, "through": False}, 5))    # exit the session before it
     return T

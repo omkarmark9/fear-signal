@@ -54,3 +54,55 @@ It was written before any v2 trial ran.
    - E2 faded (both signs counted);
    - idiosyncratic-shock and IVOL/MAX avoidance;
    - more extreme E3.
+
+## 2026-11-28, Rounds 2–5 run: 191 trials registered
+
+**Earnings data.** 1,657 report dates (Robinhood calendar, 2023-11..2026-11).
+After dropping stale unverified dates, 1,651 remain, covering 1,049
+reaction sessions in dev. The SHA-256 is locked in
+`config/trading_v2_inputs.json`.
+
+**Results on dev**, as t of each trial's performance series:
+
+| round | family | result |
+|---|---|---|
+| R1 | E4, earnings reaction | bad reactions as bearish information +1.8 to +2.9 (all 6 positive); good reactions held long −0.6 to −2.2 (all 6 negative) |
+| R2 | E2F, good-news gap-ups faded | up to +2.28 |
+| R2 | E6, idiosyncratic gap of either sign | +2.60 (H 10) |
+| R2 | MAX / IVOL avoidance | −0.35 / −0.96: the classic anomalies do not hold here |
+| R2 | E3 with v ≤ −3 | negative |
+| R2 | ensembles | E1 +1.81, E6 +2.13, E1+E2F +2.04 |
+| R2 | clean basket (gaps, H 20), long-only | **+2.72** |
+| R3 | **E7**, earnings reaction of either sign ≥ 3σ, bearish information | **+3.17 (H 20), +3.65 (H 40)** |
+| R3 | clean basket on earnings flags | +0.2 to +2.1; H 20 gaps remains the best clean basket |
+| R3 | theme ensembles | +2.25 / +2.42 |
+| R4 | E7 conditioned on model 1 | calm market +3.09 against high fear +1.36; Z ≥ 2 +2.92 against Z < 2 +1.92; inverse-vol weights +3.38; thr 4: +2.77; H 60: +2.73. No gain over plain E7. |
+| R5 | E8, EPS surprise | good surprises long −2.0 (negative); bad weak |
+| R5 | E9, beat and drop | +2.26 (H 40) |
+| R5 | E10, announcement premium | +1.74 held through the report, +0.20 if not |
+
+**Theme.** A stock-specific news shock is followed by underperformance
+against β × basket for 20–40 sessions, *whichever its sign*.
+- Bad news drifts on.
+- Good news reverses.
+
+Six independently built families agree. Model 1's conditioning adds
+nothing to the news rule.
+
+**Registry statistics after Round 3** (165 trials):
+- effective independent trials 11.4;
+- StepM rejects E7 at H 40 and H 20 (critical t 3.06);
+- PBO 0.32;
+- DSR of E7 H40 0.84, short of the 0.95 required.
+
+**Next.**
+1. Recompute the registry statistics at 191 trials.
+2. Run candidate diagnostics on the StepM-rejected trials: placebo,
+   same-stock, intercept and plain basket, by year, leave-one-episode-out,
+   top-event dependence.
+3. Apply the declared selection rule.
+
+**Declared now, before any 2026 read of v2.** If no trial passes the
+whole rule, the StepM-rejected trials are still read on 2026 once, as
+descriptive figures. They stay at Tier 0 and become the pre-registered
+hypotheses for the prospective test.
