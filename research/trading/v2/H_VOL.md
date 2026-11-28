@@ -65,3 +65,35 @@ of Goyal & Saretto (2009) and the variance-risk-premium literature
 
 There is no parameter search: the 28-day entry, the ATM strike and the
 1.0 ratio are fixed here.
+
+## Operational clarifications
+
+These were added before any sample price was collected. Two bars had been
+seen by then, both from checks that the API works: the MSFT pilot bar and
+one AMD bar (the 2024-02-16 $175 pair, from a format check).
+
+- **Holiday expiries.** When the third Friday is a market holiday, the
+  standard expiry is the session before it. In this window that is
+  2025-04-17 (Good Friday) and 2026-06-18 (Juneteenth). The entry session
+  is dated from that expiry.
+- **Strike rule.** The candidates are round(S/g)·g for g in {0.5, 1, 2.5,
+  5, 10}, where S is the raw close at entry. They are tried in order of
+  distance from S, lower strike first on ties. The first candidate listed
+  as both a call and a put for that expiry is used. If the strike grid
+  near the money is any of those spacings, this is the nearest listed
+  strike.
+- **Missing bars.** A bar flagged `interpolated` counts as missing.
+- **Forecast scale.** Comparisons use total volatility over the option's
+  life, as follows.
+  - σ̃_tot = κ₂₀ · σ̃(h), with h the number of sessions after entry up to
+    and including expiry, and κ₂₀ the dev calibration.
+  - IV_tot = IV · √T.
+  - RV_tot = √(Σ r²) over those h sessions.
+  - "σ̃ ≥ IV" means σ̃_tot ≥ IV_tot.
+  - The H_VOL1 regression uses the logs of these three totals.
+- **Settlement price.** S_T is the raw close on the expiry session.
+- **Secondary analysis (reported, never a claim).** H_VOL1 and H_VOL2 are
+  repeated on the pairs whose life contains no earnings reaction session,
+  taken from the v2 earnings calendar. σ̃ has no earnings information,
+  while IV prices earnings, so this shows how much of any effect comes
+  from earnings.
