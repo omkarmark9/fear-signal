@@ -225,3 +225,26 @@ QLIKE diagnostic are in `H_VOL.md`.
 - The model-2 prospective declaration: ND1, the risk-skill check, and the
   v2 and H_VOL hypotheses as exploratory.
 - The v2 docs.
+
+## 2026-11-28, prospective test drafted; review before the code lock
+
+`research/trading/PROSPECTIVE.md` and `trading/prospective.py` were
+committed at 4a1453d. The docs followed at d901138.
+- **Sample.** The first 400 sessions after 2026-11-27, read once.
+- **P2-1.** The ND1 gate series. A test checks that it reproduces the
+  v1 2026 read exactly.
+- **P2-2.** The QLIKE advantage over EWMA, with frozen v3 and h 20.
+- **Multiplicity.** Holm, so each claim needs p < 0.05.
+- **Live monitors.** The declared sequential guard and demotion now run
+  in `trading-live` and can only lower a tier. There are no prospective
+  events yet.
+
+**Before locking.** An independent review is checking hvol.py,
+prospective.py and both docs. `config/trading_prospective.json` will
+pin the code tree only after its findings are resolved.
+
+**Open item.** The holdout_v2 docstring and this log said the five v2
+StepM survivors would "become the prospective test's pre-registered
+hypotheses". PROSPECTIVE.md lists them as reported only. That will be
+reconciled with a declared statistic and a strict replication rule
+before the lock.
