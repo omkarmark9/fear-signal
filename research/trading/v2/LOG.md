@@ -134,3 +134,34 @@ hypotheses for the prospective test.
 rule (≥ 0.95). As declared above, the five are now read on 2026 once,
 descriptively. They stay at Tier 0 and become pre-registered hypotheses
 for the prospective test.
+
+## 2026-11-28, descriptive 2026 read of the five StepM survivors: none replicates
+
+`outputs/trading/v2/holdout_2026.json`; its start was logged in
+`HOLDOUT_RUNLOG.md` before anything was computed.
+
+| trial | dev t | 2026 t | 2026 placebo percentile | 2026 event mean (median) |
+|---|---|---|---|---|
+| E7 H 20 | 3.17 | 0.57 | 0.745 | +1.00% (+1.79%) |
+| E7 H 40 | 3.65 | −0.07 | 0.555 | +0.70% (+1.21%) |
+| E7 H 40, inverse vol | 3.38 | −0.24 | 0.500 | +0.70% |
+| E11 winners H 5 | 3.30 | −0.50 | 0.330 | −0.94% |
+| E11F H 10 | 3.16 | −0.38 | 0.475 | −0.75% |
+
+**Conclusion.**
+- The deflated-Sharpe gate was right to reject all five. They passed
+  StepM, the placebo, the intercept test and both dev years, and still
+  did not replicate.
+- After 215 trials, v2 finds no return edge that survives.
+- Model 1's validated skill is risk forecasting.
+
+**Declared before running it.** The live sizing yardstick's QLIKE
+advantage over EWMA (dev: −0.109 at h 5, −0.107 at h 20) is re-checked
+on 2026 once. Same code, h ∈ {5, 20}, realized windows ending by
+2026-11-27.
+
+**Next.**
+1. The 2026 QLIKE re-check.
+2. A feasibility pilot for reconstructing historical implied volatility
+   from Robinhood's expired contracts: can model 1's forecast volatility
+   price options better than IV?
