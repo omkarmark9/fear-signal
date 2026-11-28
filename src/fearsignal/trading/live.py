@@ -160,6 +160,14 @@ def main(n_days: int = 6) -> dict:
     mk, st, rf, prices, report = state()
     days = mk.index[-n_days:]
     status = family_status()
+    # declared live monitors (research/trading/PROSPECTIVE.md): they can lower ND's tier, never raise it
+    from . import prospective
+    if status["ND"].get("tier", 0) > 0:
+        mon = prospective.nd_monitor(rf, prices, int(status["ND"]["tier"]))
+        status["ND"]["monitor"] = mon
+        if mon["tier_effective"] < status["ND"]["tier"]:
+            status["ND"]["why"] += f"; lowered to Tier {mon['tier_effective']} by the live monitor"
+            status["ND"]["tier"] = mon["tier_effective"]
     m1 = model1_table(mk, st, rf, days)
     tk = tickets(rf, prices, status, days)
     E = rf_exposure(rf, prices, status, days)

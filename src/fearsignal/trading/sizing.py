@@ -149,9 +149,11 @@ def load_refits() -> list[dict]:
     return json.loads((RAW / "pit_refits.json").read_text())
 
 
-def qlike_oos(rf, refits: list[dict], kappa: dict, kappa_ewma: dict, start, end, hs=(5, 20)) -> dict:
+def qlike_oos(rf, refits: list[dict], kappa: dict, kappa_ewma: dict, start, end, hs=(5, 20),
+              A_live=None, s_live=None) -> dict:
     """Out-of-sample QLIKE of the regime yardstick against EWMA, using level factors
-    calibrated elsewhere (dev). Nothing is fitted on [start, end]."""
+    calibrated elsewhere (dev). Nothing is fitted on [start, end]. With ``A_live`` and
+    ``s_live`` (the frozen live model) the refits are ignored."""
     r, el = rf.r, rf.eligible
     ew = ewma_sigma(r.where(el))
     win = (r.index >= pd.Timestamp(start)) & (r.index <= pd.Timestamp(end))
@@ -160,7 +162,7 @@ def qlike_oos(rf, refits: list[dict], kappa: dict, kappa_ewma: dict, start, end,
         rv = realized_var(r, h)
         ends_ok = (pd.Series(r.index, index=r.index).shift(-h) <= pd.Timestamp(end)).fillna(False).to_numpy()
         rows = win & ends_ok
-        st = unscaled_sigma_tilde(rf.sigma, rf.P_calm, rf.P_stressed, rf.P_panic, refits, h)
+        st = unscaled_sigma_tilde(rf.sigma, rf.P_calm, rf.P_stressed, rf.P_panic, refits, h, A_live, s_live)
         k, ke = kappa[str(h)] if str(h) in kappa else kappa[h], kappa_ewma[str(h)] if str(h) in kappa_ewma else kappa_ewma[h]
         f_reg = (k * st)[rows].where(el[rows])
         f_ew = (ke * ew * np.sqrt(h))[rows].where(el[rows])
