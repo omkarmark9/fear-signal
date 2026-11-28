@@ -1,0 +1,112 @@
+{
+ "period": "2026",
+ "n_tasks": 110,
+ "n_missing_records": 0,
+ "records_by_source": {
+  "pass1": 65,
+  "pass2": 45
+ },
+ "excluded_by_status": {},
+ "excluded_after_collection": {},
+ "n_used": 110,
+ "kappa20": 0.9516275137439552,
+ "rate": 0.04,
+ "cost": 0.05,
+ "inputs": {
+  "hvol_tasks.json": "31c5433537a4e69573cfb53b28eb057f45ab9763c16e9268ebdf0cabcda5b7f6",
+  "hvol_pass1.jsonl": "6c96b01c27e5d4b49996f6efd1358266db4fc4224478ec952e9920e4368056ce",
+  "hvol_pass2.jsonl": "f599aef9e060d563ca6f23552702f904118269dc1d6fad3ab5a738d4a4f5fa13"
+ },
+ "describe": {
+  "n": 110,
+  "names": 10,
+  "months": 11,
+  "share_hi": 0.7909090909090909,
+  "share_earnings_in_life": 0.3181818181818182,
+  "median_iv": 0.5138859178030233,
+  "mean_log_rv_over_iv": 0.08230863690603171,
+  "mean_log_st_over_iv": 0.17752982354271804,
+  "mean_log_rv_over_st": -0.09522118663668629,
+  "mean_net_all": 0.2782827592642216,
+  "median_abs_parity_resid": 0.005777585096934618
+ },
+ "H_VOL1": {
+  "n": 110,
+  "clusters": 11,
+  "a": 0.12695598049316606,
+  "b_log_iv": 0.860097162186321,
+  "c_log_stilde": 0.178627560455847,
+  "se_c": 0.2171129157252738,
+  "t_c": 0.8227403692642372,
+  "p_one_sided": 0.21491892347459438,
+  "t_b": 3.9387000622908483
+ },
+ "H_VOL2": {
+  "n_hi": 87,
+  "n_lo": 23,
+  "months": 11,
+  "mean_hi": 0.33607885905273327,
+  "mean_lo": 0.0596627296294169,
+  "diff": 0.2764161294233164,
+  "p_one_sided": 0.1089455272363818,
+  "draws_used": 2000,
+  "ci95": [
+   -0.15200781688094775,
+   0.7043562650082742
+  ]
+ },
+ "H_VOL3": {
+  "n_hi": 87,
+  "mean_net": 0.33607885905273327,
+  "p_one_sided": 0.01699150424787606,
+  "ci95": [
+   0.04638593689125517,
+   0.6495643871092275
+  ]
+ },
+ "secondary_no_earnings": {
+  "describe": {
+   "n": 75,
+   "names": 10,
+   "months": 11,
+   "share_hi": 0.8933333333333333,
+   "share_earnings_in_life": 0.0,
+   "median_iv": 0.47774203847028396,
+   "mean_log_rv_over_iv": 0.06285866947877401,
+   "mean_log_st_over_iv": 0.23032138521480044,
+   "mean_log_rv_over_st": -0.1674627157360264,
+   "mean_net_all": 0.23687631457899136,
+   "median_abs_parity_resid": 0.005269678245596669
+  },
+  "H_VOL1": {
+   "n": 75,
+   "clusters": 11,
+   "a": 0.1438923201086533,
+   "b_log_iv": 0.8742820530919908,
+   "c_log_stilde": 0.18711896621314772,
+   "se_c": 0.1915446556149167,
+   "t_c": 0.9768947382658045,
+   "p_one_sided": 0.1758307107083622,
+   "t_b": 3.849889934220465
+  },
+  "H_VOL2": {
+   "n_hi": 67,
+   "n_lo": 8,
+   "months": 11,
+   "mean_hi": 0.2804061248725795,
+   "mean_lo": -0.1276858466298088,
+   "diff": 0.4080919715023883,
+   "p_one_sided": 0.028,
+   "draws_used": 1999,
+   "ci95": [
+    0.0795436588649176,
+    0.818535078232028
+   ]
+  }
+ },
+ "decision": {
+  "H_VOL2_holds_on_dev": false,
+  "diff_2026_positive": true,
+  "enters_prospective_as_tier1": false
+ }
+}

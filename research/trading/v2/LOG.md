@@ -201,3 +201,27 @@ the 136 pairs.
 
 Vendor data stays uncommitted. `config/hvol_inputs.json` locks it by
 hash.
+
+## 2026-11-28, H_VOL read: not supported (dev p 0.053); IV beats σ̃
+
+Pass 2 found a listed-at-entry strike for 135 of the 136 placeholder
+pairs. Mechanical checks of both passes found no violations, and the
+inputs were locked at 61fa3ab before any computation. Each period was
+then read once.
+
+| | dev | 2026 |
+|---|---|---|
+| H_VOL1: σ̃'s information beyond IV | t 0.97, p 0.17 | t 0.82, p 0.21 |
+| H_VOL2: straddles, σ̃ ≥ IV minus the rest | +14.5 points, p 0.053 | +27.6 points, p 0.11 |
+| all straddles, mean net | +11.4% | +27.8% |
+
+The declared rule says not supported. The full table and the post-hoc
+QLIKE diagnostic are in `H_VOL.md`.
+- Model 1's forecast beats EWMA but not implied volatility.
+- Realized volatility ran above IV throughout 2024–26, which is a
+  period effect.
+
+**Next.**
+- The model-2 prospective declaration: ND1, the risk-skill check, and the
+  v2 and H_VOL hypotheses as exploratory.
+- The v2 docs.

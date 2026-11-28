@@ -1,0 +1,113 @@
+{
+ "period": "dev",
+ "n_tasks": 230,
+ "n_missing_records": 0,
+ "records_by_source": {
+  "pass1": 139,
+  "pass2": 91
+ },
+ "excluded_by_status": {
+  "not_listed_at_entry": 1
+ },
+ "excluded_after_collection": {},
+ "n_used": 229,
+ "kappa20": 0.9516275137439552,
+ "rate": 0.04,
+ "cost": 0.05,
+ "inputs": {
+  "hvol_tasks.json": "31c5433537a4e69573cfb53b28eb057f45ab9763c16e9268ebdf0cabcda5b7f6",
+  "hvol_pass1.jsonl": "6c96b01c27e5d4b49996f6efd1358266db4fc4224478ec952e9920e4368056ce",
+  "hvol_pass2.jsonl": "f599aef9e060d563ca6f23552702f904118269dc1d6fad3ab5a738d4a4f5fa13"
+ },
+ "describe": {
+  "n": 229,
+  "names": 10,
+  "months": 23,
+  "share_hi": 0.6157205240174672,
+  "share_earnings_in_life": 0.33624454148471616,
+  "median_iv": 0.39960745213733895,
+  "mean_log_rv_over_iv": 0.031580013544687605,
+  "mean_log_st_over_iv": 0.03793441823612897,
+  "mean_log_rv_over_st": -0.006354404691441365,
+  "mean_net_all": 0.11384850448941755,
+  "median_abs_parity_resid": 0.010283654044604079
+ },
+ "H_VOL1": {
+  "n": 229,
+  "clusters": 23,
+  "a": 0.014048376138370766,
+  "b_log_iv": 0.8730208213491435,
+  "c_log_stilde": 0.12117771031517949,
+  "se_c": 0.12481528133537881,
+  "t_c": 0.9708563648514706,
+  "p_one_sided": 0.17108679997142406,
+  "t_b": 7.222171877777307
+ },
+ "H_VOL2": {
+  "n_hi": 141,
+  "n_lo": 88,
+  "months": 23,
+  "mean_hi": 0.16960686294952043,
+  "mean_lo": 0.024508407411298117,
+  "diff": 0.14509845553822232,
+  "p_one_sided": 0.05347326336831584,
+  "draws_used": 2000,
+  "ci95": [
+   -0.021809351670686733,
+   0.3224633509456916
+  ]
+ },
+ "H_VOL3": {
+  "n_hi": 141,
+  "mean_net": 0.16960686294952043,
+  "p_one_sided": 0.02798600699650175,
+  "ci95": [
+   -0.0026436754989043955,
+   0.3413987206818676
+  ]
+ },
+ "secondary_no_earnings": {
+  "describe": {
+   "n": 152,
+   "names": 10,
+   "months": 23,
+   "share_hi": 0.8157894736842105,
+   "share_earnings_in_life": 0.0,
+   "median_iv": 0.3614509726237642,
+   "mean_log_rv_over_iv": 0.04772152577722916,
+   "mean_log_st_over_iv": 0.13561243446536958,
+   "mean_log_rv_over_st": -0.08789090868814041,
+   "mean_net_all": 0.11534670936700865,
+   "median_abs_parity_resid": 0.01213727795207404
+  },
+  "H_VOL1": {
+   "n": 152,
+   "clusters": 23,
+   "a": 0.09895791165915613,
+   "b_log_iv": 0.9096855866834513,
+   "c_log_stilde": 0.11919342656344972,
+   "se_c": 0.1822226445227596,
+   "t_c": 0.6541087518272871,
+   "p_one_sided": 0.2599107381694797,
+   "t_b": 4.55249901063552
+  },
+  "H_VOL2": {
+   "n_hi": 124,
+   "n_lo": 28,
+   "months": 23,
+   "mean_hi": 0.1571147232818126,
+   "mean_lo": -0.0696259236842659,
+   "diff": 0.2267406469660785,
+   "p_one_sided": 0.050474762618690654,
+   "draws_used": 2000,
+   "ci95": [
+    -0.057626709961327634,
+    0.49548848696640574
+   ]
+  }
+ },
+ "decision": {
+  "H_VOL1_claimed": false,
+  "H_VOL2_holds_on_dev": false
+ }
+}

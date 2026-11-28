@@ -127,3 +127,70 @@ vendor data, they are not committed; their SHA-256 is in
 
 At this point no IV, forecast, realized volatility or straddle return had
 been computed for any pair.
+
+## Results (2026-11-28; each period read once, logged in `outputs/trading/v2/HVOL_RUNLOG.md`)
+
+Outputs are `outputs/trading/v2/hvol_dev.json` and `hvol_2026.json`.
+Per-pair derived quantities are in `hvol_pairs_*.csv`; vendor prices are
+omitted.
+
+**Sample.** 339 of 340 pairs are usable. MU 2025-03-21 is excluded: no
+candidate was listed at entry. Of the 339, 204 strikes come from pass 1
+and 135 from pass 2. Nothing broke the no-arbitrage bounds. The median
+absolute put-call parity residual is 1.0% of premium on dev and 0.6% in
+2026.
+
+| | dev (expiries 2024-02..2025-12) | 2026 (2026-01..2026-11) |
+|---|---|---|
+| pairs (months) | 229 (23) | 110 (11) |
+| median IV | 40% | 51% |
+| mean log(RV/IV), so RV ran above IV | +0.032 | +0.082 |
+| share with σ̃ ≥ IV | 62% | 79% |
+| **H_VOL1**: c on log σ̃, beyond log IV | 0.12 (s.e. 0.12, t 0.97, p 0.17) | 0.18 (s.e. 0.22, t 0.82, p 0.21) |
+| coefficient b on log IV | 0.87 (t 7.2) | 0.86 (t 3.9) |
+| **H_VOL2**: mean net straddle, σ̃ ≥ IV minus σ̃ < IV | +14.5 points (+17.0% vs +2.5%), **p 0.053**, 95% CI [−2.2, +32.2] | +27.6 points (+33.6% vs +6.0%), p 0.11 |
+| **H_VOL3**: mean net, σ̃ ≥ IV group | +17.0%, p 0.028 | +33.6%, p 0.017 |
+| mean net straddle, all pairs (median) | +11.4% (−8.0%) | +27.8% (+11.8%) |
+| secondary, no earnings in life: H_VOL2 | +22.7 points, p 0.050 (124 vs 28 pairs) | +40.8 points, p 0.028 (67 vs 8 pairs) |
+
+**Decision (as declared).**
+- H_VOL1 is not claimed in either period.
+- H_VOL2 fails on dev: p = 0.053 against the 0.05 threshold. So the
+  straddle rule is **not supported** and does not enter the prospective
+  test, even though its 2026 difference is positive.
+- H_VOL3 is reported only.
+
+**What it means.**
+- **σ̃ against IV.** Model 1's forecast adds no significant information
+  about realized volatility beyond implied volatility. The point estimate
+  is positive in both periods, but IV carries almost all of it.
+- **σ̃ against EWMA.** The forecast beats a historical-volatility
+  forecaster (EWMA), on dev and in the 2026 QLIKE re-check. It does not
+  beat the options market.
+- **The straddle sorting.** The σ̃ ≥ IV group did better in both periods.
+  That is a consistent direction, but by the declared rule neither period
+  passes on its own.
+- **Long volatility paid in general.** Realized volatility ran above
+  implied in both periods, so the average ATM straddle on these names
+  made money. On dev, though, the median straddle lost.
+  - This is the 2024–26 AI rally's large moves, not something model 1
+    predicted.
+  - The usual sign of the variance risk premium is the opposite (IV > RV),
+    so no rule is drawn from it.
+
+**Post-hoc diagnostic (not pre-registered).**
+- QLIKE of each forecast's variance against RV at the option horizon,
+  with month-clustered differentials against raw IV:
+
+  | forecast | dev | 2026 |
+  |---|---|---|
+  | σ̃ | 0.346 (+0.096 vs IV, t 1.5) | 0.266 (+0.045, t 0.4) |
+  | raw IV | 0.249 | 0.222 |
+  | IV × dev level factor 1.127 | 0.209 (−0.040, t −1.3) | 0.166 (−0.056, t −1.5) |
+  | geometric mean of σ̃ and IV | 0.260 (+0.011, t 0.4) | 0.189 (−0.033, t −0.5) |
+
+- **Implications for live use.**
+  - Where a listed option exists, its IV is the better risk yardstick for
+    sizing.
+  - The declared ρ = IV/σ̃ put filter is a cap on what to pay, not an
+    edge.

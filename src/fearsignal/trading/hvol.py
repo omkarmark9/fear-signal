@@ -47,6 +47,7 @@ LOCK = protocol.ROOT / "config" / "hvol_inputs.json"
 OUT = protocol.OUT / "v2"
 RUNLOG = OUT / "HVOL_RUNLOG.md"
 TICK = 0.01
+VENDOR_COLS = ("S", "K", "call", "put", "S_T")
 
 
 # ----------------------------------------------------------------------------- sample
@@ -349,7 +350,9 @@ def main(period: str, rerun_reason: str | None = None) -> dict:
                            "diff_2026_positive": bool(h2["diff"] > 0),
                            "enters_prospective_as_tier1": bool(dev["decision"]["H_VOL2_holds_on_dev"] and h2["diff"] > 0)}
     protocol.write_json(out_path, res)
-    sel.assign(expiry=sel["expiry"].dt.date.astype(str), entry=sel["entry"].dt.date.astype(str)).to_csv(
+    # derived quantities only: vendor prices (stock and option closes, strikes) are never committed
+    keep = [c for c in sel.columns if c not in VENDOR_COLS]
+    sel[keep].assign(expiry=sel["expiry"].dt.date.astype(str), entry=sel["entry"].dt.date.astype(str)).to_csv(
         OUT / f"hvol_pairs_{period}.csv", index=False)
     with open(RUNLOG, "a") as fh:
         fh.write(f"| {datetime.now(timezone.utc):%Y-%m-%d %H:%M} | {period} read completed | n={len(sel)} |\n")
