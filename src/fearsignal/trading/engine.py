@@ -328,3 +328,59 @@ def summary(ret: pd.Series, start=None, end=None) -> dict:
             "ann_vol": float(sd * np.sqrt(ANN)),
             "sharpe": float(s.mean() / sd * np.sqrt(ANN)) if sd > 0 else 0.0,
             "max_drawdown": float((eq / eq.cummax() - 1).min()), "mean_daily": float(s.mean())}
+
+
+def run_weights(target: pd.DataFrame, prices: Prices, cost_bps: float = 10.0, delay: int = 1) -> pd.DataFrame:
+    """A long-only portfolio rebalanced to target weights.
+
+    ``target`` has one row per decision date t (weights per ticker, summing to
+    1; zero or NaN means not held). Each row is executed at the open of
+    t+delay. Between rebalances the holdings drift with prices: overnight
+    close->open, then intraday open->close. Costs are cost_bps x the traded
+    notional at the open. Before the first execution the portfolio is cash.
+    A name with a missing price is carried at its last value.
+
+    Returns daily ``ret`` (close-to-close, net of costs), ``turnover`` (traded
+    notional over the portfolio's value) and ``n_held``.
+    """
+    dates = prices.dates
+    pos = {d: i for i, d in enumerate(dates)}
+    ao = prices.adj_open.to_numpy(float)
+    ac = prices.adj_close.to_numpy(float)
+    cols = list(prices.adj_close.columns)
+    W = target.reindex(columns=cols).fillna(0.0)
+    execs = {}
+    for d, row in W.iterrows():
+        t = pos.get(pd.Timestamp(d))
+        if t is not None and t + delay < len(dates):
+            execs[t + delay] = row.to_numpy(float)
+    T, N = ac.shape
+    c = cost_bps / 1e4
+    h = np.zeros(N)
+    cash = 1.0
+    v_prev = 1.0
+    ret, turn, nheld = np.zeros(T), np.zeros(T), np.zeros(T)
+    for d in range(T):
+        if d > 0:
+            g_on = ao[d] / ac[d - 1]
+            h = h * np.where(np.isfinite(g_on), g_on, 1.0)
+        if d in execs:
+            w = execs[d]
+            ok = np.isfinite(ao[d]) & (w > 0)
+            w = np.where(ok, w, 0.0)
+            if w.sum() > 0:
+                w = w / w.sum()
+                V = h.sum() + cash
+                tgt = w * V
+                traded = np.abs(tgt - h).sum()
+                cost = c * traded
+                h = w * (V - cost)
+                cash = 0.0
+                turn[d] = traded / V
+        g_id = ac[d] / ao[d]
+        h = h * np.where(np.isfinite(g_id), g_id, 1.0)
+        v = h.sum() + cash
+        ret[d] = v / v_prev - 1
+        v_prev = v
+        nheld[d] = int((h > 0).sum())
+    return pd.DataFrame({"ret": ret, "turnover": turn, "n_held": nheld}, index=dates)

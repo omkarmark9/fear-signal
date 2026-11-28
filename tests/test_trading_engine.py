@@ -437,3 +437,21 @@ def test_calendar_time_steady_state_pays_full_costs():
     r5 = engine.run_cohorts(pd.DataFrame({"date": p.dates[15:45], "ticker": "S2"}), p, H=5, cost_bps=10.0)
     # H = 5, one name a day: the portfolio turns over 1/5 of its names each open, paying 2c/5
     assert r5.daily["ct_excess_net"].iloc[30] == pytest.approx((1 - c / 5) * (1 - c / 5) - 1)
+
+
+def test_run_weights_buy_and_hold_and_costs():
+    rng = np.random.default_rng(11)
+    T, N = 40, 3
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.02, (T, N)), axis=0))
+    open_ = close * np.exp(rng.normal(0, 0.01, (T, N)))
+    p = _prices(close, open_)
+    tgt = pd.DataFrame([[0.5, 0.5, 0.0]], index=[p.dates[10]], columns=p.adj_close.columns)
+    out = engine.run_weights(tgt, p, cost_bps=0.0)
+    # cash until the open of day 11, then a buy-and-hold 50/50 portfolio of S0 and S1
+    assert out["ret"].iloc[:11].abs().max() == 0.0
+    v = 0.5 * close[11:, 0] / open_[11, 0] + 0.5 * close[11:, 1] / open_[11, 1]
+    np.testing.assert_allclose((1 + out["ret"].iloc[11:]).cumprod().to_numpy(), v, rtol=1e-12)
+    # a cost of c on the initial (full) purchase
+    out_c = engine.run_weights(tgt, p, cost_bps=10.0)
+    assert (1 + out_c["ret"]).prod() == pytest.approx((1 + out["ret"]).prod() * (1 - 1e-3), rel=1e-12)
+    assert out_c["turnover"].iloc[11] == pytest.approx(1.0)
