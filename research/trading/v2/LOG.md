@@ -165,3 +165,39 @@ on 2026 once. Same code, h ∈ {5, 20}, realized windows ending by
 2. A feasibility pilot for reconstructing historical implied volatility
    from Robinhood's expired contracts: can model 1's forecast volatility
    price options better than IV?
+
+## 2026-11-28, the 2026 QLIKE re-check confirms the risk skill out of sample
+
+`outputs/trading/sizing_qlike_2026.json`. It uses dev κ and dev code;
+nothing was fitted on 2026.
+
+| h | regime QLIKE | EWMA QLIKE | diff | s.e. | t | days |
+|---|---|---|---|---|---|---|
+| 5 | 0.4603 | 0.5059 | −0.0457 | 0.0351 | −1.30 | 223 |
+| 20 | 0.2333 | 0.2934 | −0.0602 | 0.0447 | −1.35 | 208 |
+
+The direction holds. The size is about half the dev advantage, and with
+one year it is not significant on its own.
+
+## 2026-11-28, H_VOL is pre-registered and its data collected
+
+`research/trading/v2/H_VOL.md` asks whether model 1's forecast volatility
+prices options: whether σ̃ adds information about realized vol beyond
+implied vol, and whether straddles bought when σ̃ ≥ IV beat the rest.
+- **Sample:** 10 split-free names × 34 monthly expiries (2024-02..2026-11),
+  ATM call and put, entry 28 days before expiry.
+- **Committed before any sample price was collected:**
+  - d9629a1, the design;
+  - ee71c7f, the operational details.
+
+**Collection pass 1** used 7 background agents to fetch Robinhood
+expired-contract daily bars. 136 of the 340 pairs came back with
+placeholder entry bars, either interpolated or flat at 0.01. Those
+strikes were listed after the entry day.
+
+**Amendment 1** (f76facb) was made before any computation: use the
+nearest strike that was listed at entry. Pass 2 (4 agents) applies it to
+the 136 pairs.
+
+Vendor data stays uncommitted. `config/hvol_inputs.json` locks it by
+hash.

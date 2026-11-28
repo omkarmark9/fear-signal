@@ -121,7 +121,9 @@ spot tend to be added when the stock stays near it.
   `not_listed_at_entry`.
 
 A second collection pass applies this rule to the 136 pairs. The first
-pass's raw records are kept in `data/raw/hvol_pass1.jsonl`.
+pass's raw records are kept in `data/raw/hvol_pass1.jsonl`. Like all
+vendor data, they are not committed; their SHA-256 is in
+`config/hvol_inputs.json`.
 
 At this point no IV, forecast, realized volatility or straddle return had
 been computed for any pair.

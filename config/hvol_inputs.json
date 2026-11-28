@@ -1,11 +1,13 @@
 {
  "sha256": {
   "hvol_tasks.json": "31c5433537a4e69573cfb53b28eb057f45ab9763c16e9268ebdf0cabcda5b7f6",
-  "hvol_pass1.jsonl": "6c96b01c27e5d4b49996f6efd1358266db4fc4224478ec952e9920e4368056ce"
+  "hvol_pass1.jsonl": "6c96b01c27e5d4b49996f6efd1358266db4fc4224478ec952e9920e4368056ce",
+  "hvol_pass2.jsonl": "f599aef9e060d563ca6f23552702f904118269dc1d6fad3ab5a738d4a4f5fa13"
  },
  "rows": {
   "hvol_tasks.json": 340,
-  "hvol_pass1.jsonl": 340
+  "hvol_pass1.jsonl": 340,
+  "hvol_pass2.jsonl": 136
  },
- "note": "H_VOL option sample: the task list (sample definition) and the first collection pass (Robinhood expired-contract daily bars, fetched 2026-11-28). See research/trading/v2/H_VOL.md."
+ "note": "H_VOL option sample: the task list (sample definition), the first collection pass and the second pass under amendment 1 (Robinhood expired-contract daily bars, fetched 2026-11-28). See research/trading/v2/H_VOL.md."
 }
