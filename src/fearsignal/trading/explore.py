@@ -73,6 +73,19 @@ class Ctx:
             self._ew = sizing.ewma_sigma(self.rf.r.where(self.rf.eligible))
         return self._ew
 
+    def flags(self, rule: str, H: int) -> pd.DataFrame:
+        """True where a name had an idiosyncratic-shock signal in the last H sessions (known at t)."""
+        key = ("flags", rule, H)
+        if key not in self._st:
+            rf = self.rf
+            names = F._names(rf)
+            calm = _days(_day(rf, "calm"), rf.x)
+            down = (rf.x >= 2) & (rf.v <= -2) & (rf.g_seg <= -1.5)
+            up = (rf.g_seg >= 1.5) & (rf.r >= rf.sigma)
+            ev = {"down": down, "up": up, "both": down | up}[rule] & names & calm
+            self._st[key] = ev.astype(float).rolling(H, min_periods=1).max().fillna(0).astype(bool)
+        return self._st[key]
+
     def rho(self, t: int) -> float:
         if t not in self._rho:
             self._rho[t] = sizing.equicorrelation(self.rf.r, self.rf.eligible, t)
@@ -123,6 +136,23 @@ def event_rule(tr: Trial, ctx: Ctx):
         m = names & rs & ((rf.v >= p["thr"]) if good else (rf.v <= -p["thr"]))
         prio = -rf.v if good else rf.v
         return m, prio, p["H"], 10, "long" if good else "short_info", 1
+    if tr.family == "E2F":           # good-news gap-up FADED: bearish information (Round 2; counts the sign flip)
+        m = (names & (rf.g_seg >= p["g"]) & (rf.r >= rf.sigma) & (rf.relvol >= p["rv"])
+             & _days(_day(rf, "calm"), rf.x))
+        return m, -rf.g_seg, p["H"], 5, "short_info", 1
+    if tr.family == "E6":            # any idiosyncratic shock on a calm day -> underperformance (MAX/IVOL-like)
+        down = (rf.x >= 2) & (rf.v <= -2) & (rf.g_seg <= -1.5)
+        up = (rf.g_seg >= 1.5) & (rf.r >= rf.sigma)
+        m = names & (down | up) & _days(_day(rf, "calm"), rf.x)
+        return m, -rf.v.abs(), p["H"], 10, "short_info", 1
+    if tr.family in ("MAXA", "IVOLA"):  # periodic top-10 by MAX or IVOL: bearish information
+        score = max_return(ctx) if tr.family == "MAXA" else ivol(ctx)
+        score = score.where(names)
+        rank = score.rank(axis=1, ascending=False, method="first")
+        every = np.zeros(len(score), bool)
+        every[::5] = True
+        m = (rank <= 10) & _days(pd.Series(every, index=score.index) & ~rf.half_day, rf.x)
+        return m, -score, p["H"], 10, "short_info", 1
     if tr.family == "E5":            # cross-sectional fear factor
         score = (rf.Z if p["signal"] == "Z" else inputs_I(ctx)).where(names)
         asc = p["end"] == "low"
@@ -130,6 +160,19 @@ def event_rule(tr: Trial, ctx: Ctx):
         m = (rank <= 10) & _days(~rf.half_day, rf.x)
         return m, (score if asc else -score), p["H"], 10, "long", 1
     raise ValueError(tr.family)
+
+
+def max_return(ctx: Ctx, window: int = 21) -> pd.DataFrame:
+    """MAX (Bali, Cakici & Whitelaw 2011): the largest daily log return over the last
+    ``window`` sessions, in own sigma, known at the close of t."""
+    rf = ctx.rf
+    return (rf.r / rf.sigma).rolling(window, min_periods=15).max()
+
+
+def ivol(ctx: Ctx, window: int = 63) -> pd.DataFrame:
+    """Idiosyncratic volatility (Ang, Hodrick, Xing & Zhang 2006): the s.d. of the beta
+    residual u over the last ``window`` sessions, known at the close of t."""
+    return ctx.rf.u.rolling(window, min_periods=40).std()
 
 
 def inputs_I(ctx: Ctx) -> pd.DataFrame:
@@ -147,6 +190,10 @@ def earnings_sessions(ctx: Ctx) -> pd.DataFrame:
     if ctx.earnings is None:
         path = protocol.RAW / "earnings_calendar.json"
         rows = json.loads(path.read_text())["rows"]
+        # an unverified (tentative) date is dropped when the same fiscal quarter has a verified date
+        verified = {(r["symbol"], r.get("year"), r.get("quarter")) for r in rows if r["report"].get("verified")}
+        rows = [r for r in rows if r["report"].get("verified")
+                or (r["symbol"], r.get("year"), r.get("quarter")) not in verified]
         dates = ctx.prices.dates
         cols = ctx.prices.adj_close.columns
         m = pd.DataFrame(False, index=dates, columns=cols)
@@ -245,6 +292,9 @@ def portfolio_weights(tr: Trial, ctx: Ctx) -> tuple[pd.DataFrame, pd.DataFrame]:
             n = u.sum()
             w = np.where(u, a * (a - rho * a.sum() / (1 + (n - 1) * rho)) / (1 - rho), 0.0)
             w = np.clip(w, 0, None)
+        elif kind == "clean_basket":
+            flag = ctx.flags(p["rule"], p["H"])
+            w = np.where(u & ~flag.iloc[t].to_numpy(bool), 1.0, 0.0)
         elif kind == "invvol_fear_ex_qnext":
             q = rf.q_next.iloc[t].to_numpy(float)
             cut = np.nanquantile(np.where(u, q, np.nan), 1 - p["q"])
@@ -361,6 +411,28 @@ def register(tr: Trial, rec: dict, x: pd.Series) -> None:
         col.to_parquet(SERIES)
 
 
+def run_ensemble(tr: Trial, ctx: Ctx) -> tuple[dict, pd.Series]:
+    """An equal split of capital across member event trials: the daily series is the
+    members' mean, at base settings, at 25 bps and with a one-day delay."""
+    members = [Trial(m["family"], "event", m["params"]) for m in tr.params["members"]]
+    rf, prices = ctx.rf, ctx.prices
+    base, c25, dl = [], [], []
+    for m in members:
+        mask, prio, H, cap, side, delay = event_rule(m, ctx)
+        sig = signals.to_signals(signals.suppress_reentry(mask, H, priority=prio, cap=cap))
+        for out, (cost, dly) in ((base, (10.0, delay)), (c25, (25.0, delay)), (dl, (10.0, delay + 1))):
+            last = gates.last_signal_date(prices.dates, H, dly, END)
+            res = engine.run_cohorts(sig, prices, H=H, cost_bps=cost, delay=dly, side=side, start=START,
+                                     end=last, cache=ctx.cache, beta=rf.beta)
+            out.append(gates.window(res.daily["excess_net"], START, END))
+    x = pd.concat(base, axis=1).mean(axis=1)
+    st = gates.variant_stats(x, START, END)
+    rec = {"mean": st["mean_daily"], "se": st["se_daily"], "t": st["t"], "n_members": len(members),
+           "mean_25bps": float(pd.concat(c25, axis=1).mean(axis=1).mean()),
+           "mean_delay_plus1": float(pd.concat(dl, axis=1).mean(axis=1).mean())}
+    return rec, x
+
+
 def run(trials: list[Trial], ctx: Ctx, verbose: bool = True) -> list[dict]:
     """Run every trial not yet in the registry, append it, and return the new records."""
     done = registered()
@@ -368,7 +440,8 @@ def run(trials: list[Trial], ctx: Ctx, verbose: bool = True) -> list[dict]:
     for tr in trials:
         if tr.id in done:
             continue
-        fn = {"event": run_event, "portfolio": run_portfolio, "timing": run_timing}[tr.kind]
+        fn = {"event": run_event, "portfolio": run_portfolio, "timing": run_timing,
+              "ensemble": run_ensemble}[tr.kind]
         rec, x = fn(tr, ctx)
         register(tr, rec, x)
         done.add(tr.id)
@@ -428,4 +501,32 @@ def round1_trials(with_earnings: bool) -> list[Trial]:
         for end in ("low", "high"):
             for H in (5, 20):
                 T.append(Trial("E5", "event", {"signal": signal, "end": end, "H": H}))
+    return T
+
+
+def round2_trials() -> list[Trial]:
+    """Adaptive follow-ups to Round 1 (LOG.md). Logged before their results were viewed."""
+    T = []
+    for g in (1.5, 2.5):                         # E2 faded: the sign flip is a new set of trials
+        for rv in (1.0, 2.0):
+            for H in (5, 10, 20, 40):
+                T.append(Trial("E2F", "event", {"g": g, "rv": rv, "H": H}, 2))
+    for H in (5, 10, 20, 40):                     # either-sign idiosyncratic shock
+        T.append(Trial("E6", "event", {"H": H}, 2))
+    for fam in ("MAXA", "IVOLA"):
+        T.append(Trial(fam, "event", {"H": 20}, 2))
+    for v in (-3.0, -3.5):                        # more displaced systemic reversal
+        for H in (10, 20):
+            T.append(Trial("E3", "event", {"delay": 1, "v": v, "m": None, "H": H}, 2))
+    e1 = [{"family": "E1", "params": {"day": d, "x": x, "g": g, "H": H}}
+          for d in ("calm", "any") for x in (2, 3) for g in (-1.5, -2.5) for H in (5, 10, 20, 40)]
+    e2f = [{"family": "E2F", "params": {"g": g, "rv": rv, "H": H}}
+           for g in (1.5, 2.5) for rv in (1.0, 2.0) for H in (5, 10, 20, 40)]
+    e6 = [{"family": "E6", "params": {"H": H}} for H in (5, 10, 20, 40)]
+    T.append(Trial("ENS", "ensemble", {"name": "E1_all", "members": e1}, 2))
+    T.append(Trial("ENS", "ensemble", {"name": "E2F_all", "members": e2f}, 2))
+    T.append(Trial("ENS", "ensemble", {"name": "E6_all", "members": e6}, 2))
+    T.append(Trial("ENS", "ensemble", {"name": "E1_E2F_all", "members": e1 + e2f}, 2))
+    for rule in ("down", "up", "both"):           # long-only expression: the basket minus shocked names
+        T.append(Trial("P", "portfolio", {"w": "clean_basket", "rule": rule, "H": 20}, 2))
     return T
