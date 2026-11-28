@@ -97,3 +97,31 @@ one AMD bar (the 2024-02-16 $175 pair, from a format check).
   taken from the v2 earnings calendar. σ̃ has no earnings information,
   while IV prices earnings, so this shows how much of any effect comes
   from earnings.
+
+## Amendment 1 (2026-11-28, after the first collection pass, before any analysis)
+
+The first pass chose the nearest strike among all strikes ever listed for
+the expiry. Robinhood's instrument list includes strikes the exchange added
+**after** the entry session. For those strikes, the entry-session bar is a
+placeholder: either flagged interpolated, or flat at the 0.01 minimum tick
+with no flag. For example, the MSFT 2026-09-18 $482.5 call has gap-fill bars
+until 2026-08-21, a flat 0.01 bar on that entry day, and real prices from
+2026-08-24. This affected 136 of the 340 pairs.
+
+Such a contract could not have been bought at entry. Dropping these pairs
+would also select on the later price path, because strikes near the entry
+spot tend to be added when the stock stays near it.
+
+**The amended rule** is to use the nearest strike **listed at entry**.
+- Candidates are tried in the same order as before.
+- The first candidate is used whose call and put both have a real
+  entry-session bar, meaning it is not interpolated and its close is above
+  0.01.
+- If no candidate qualifies, the pair is excluded and counted as
+  `not_listed_at_entry`.
+
+A second collection pass applies this rule to the 136 pairs. The first
+pass's raw records are kept in `data/raw/hvol_pass1.jsonl`.
+
+At this point no IV, forecast, realized volatility or straddle return had
+been computed for any pair.
