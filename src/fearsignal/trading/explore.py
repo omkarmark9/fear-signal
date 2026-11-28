@@ -84,6 +84,8 @@ class Ctx:
             up = (rf.g_seg >= 1.5) & (rf.r >= rf.sigma)
             if rule in ("down", "up", "both"):
                 ev = {"down": down, "up": up, "both": down | up}[rule] & names & calm
+            elif rule.startswith("shock"):                # Round 7: any calm-day |v| >= thr
+                ev = (rf.v.abs() >= float(rule.replace("shock", ""))) & names & calm
             else:                                     # earnings reactions: "earn1.5", "earn3.0", "union1.5"
                 thr = float(rule.replace("earn", "").replace("union", ""))
                 earn = earnings_sessions(self) & (rf.v.abs() >= thr) & names
@@ -189,6 +191,39 @@ def event_rule(tr: Trial, ctx: Ctx):
         m[:-lead] = es[lead:]
         m = pd.DataFrame(m, index=rf.x.index, columns=rf.x.columns) & names
         return m, -rf.x.fillna(0), p["H"], 10, "long", 1
+    if tr.family == "E11":           # no-news idiosyncratic move on a calm day: reversal (Chan 2003; Round 6)
+        es = earnings_sessions(ctx)
+        nonews = (rf.g_seg.abs() < 0.5) & ~es
+        if p["side"] == "loser":
+            m = names & nonews & (rf.v <= -2) & _days(_day(rf, "calm"), rf.x)
+            return m, rf.v, p["H"], 10, "long", 1
+        m = names & nonews & (rf.v >= 2) & _days(_day(rf, "calm"), rf.x)
+        return m, -rf.v, p["H"], 10, "short_info", 1
+    if tr.family == "E11F":          # no-news losers FADED: bearish information (Round 7; counts the sign flip)
+        es = earnings_sessions(ctx)
+        nonews = (rf.g_seg.abs() < 0.5) & ~es
+        m = names & nonews & (rf.v <= -2) & _days(_day(rf, "calm"), rf.x)
+        return m, rf.v, p["H"], 10, "short_info", 1
+    if tr.family == "E14":           # any idiosyncratic shock |v| >= thr on a calm day: bearish information (Round 7)
+        m = names & (rf.v.abs() >= p["thr"]) & _days(_day(rf, "calm"), rf.x)
+        return m, -rf.v.abs(), p["H"], 10, "short_info", 1
+    if tr.family == "E12":           # segment-level shock on a calm day: industry drift (Round 6)
+        seg = signals.segments(rf.x.columns)
+        segmed = pd.DataFrame(index=rf.u.index, columns=rf.u.columns, dtype=float)
+        for g in seg.unique():
+            cols = seg.index[seg == g]
+            segmed[cols] = np.repeat(rf.u[cols].where(rf.eligible[cols]).median(axis=1).to_numpy()[:, None],
+                                     len(cols), axis=1)
+        calm = _days(_day(rf, "calm"), rf.x)
+        if p["side"] == "down":
+            m = names & calm & (segmed <= -1.5)
+            return m, segmed, p["H"], 10, "short_info", 1
+        m = names & calm & (segmed >= 1.5)
+        return m, -segmed, p["H"], 10, "long", 1
+    if tr.family == "E13":           # model 1's own tail forecast spikes on a calm day (Round 6)
+        prev = rf.q_next.shift(1)
+        m = names & (rf.q_next >= 0.10) & (prev < 0.10) & _days(_day(rf, "calm"), rf.x)
+        return m, -rf.q_next, p["H"], 10, "short_info", 1
     if tr.family == "E5":            # cross-sectional fear factor
         score = (rf.Z if p["signal"] == "Z" else inputs_I(ctx)).where(names)
         asc = p["end"] == "low"
@@ -648,4 +683,32 @@ def round5_trials() -> list[Trial]:
             T.append(Trial("E9", "event", {"case": case, "H": H}, 5))
     T.append(Trial("E10", "event", {"H": 5, "through": True}, 5))     # exit at the reaction session's open
     T.append(Trial("E10", "event", {"H": 4, "through": False}, 5))    # exit the session before it
+    return T
+
+
+def round6_trials() -> list[Trial]:
+    """Round 6: new mechanisms, not E7 fine-tuning. Run before any 2026 read of v2."""
+    T = []
+    for side in ("loser", "winner"):
+        for H in (5, 10):
+            T.append(Trial("E11", "event", {"side": side, "H": H}, 6))
+    for side in ("down", "up"):
+        for H in (5, 20):
+            T.append(Trial("E12", "event", {"side": side, "H": H}, 6))
+    for H in (10, 20):
+        T.append(Trial("E13", "event", {"H": H}, 6))
+    return T
+
+
+def round7_trials() -> list[Trial]:
+    """Round 7, the last exploration round: unify the post-shock theme (LOG.md)."""
+    T = []
+    for H in (5, 10):
+        T.append(Trial("E11F", "event", {"H": H}, 7))
+    for thr in (2.0, 3.0):
+        for H in (5, 10, 20, 40):
+            T.append(Trial("E14", "event", {"thr": thr, "H": H}, 7))
+    for thr in (2.0, 3.0):
+        for H in (10, 20):
+            T.append(Trial("P", "portfolio", {"w": "clean_basket", "rule": f"shock{thr}", "H": H}, 7))
     return T
