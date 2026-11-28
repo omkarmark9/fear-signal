@@ -53,6 +53,24 @@ selected on 2024–2025 and read once on 2026.
 **No rule has reached high conviction.** The model says so, and it shows
 every signal with its tier.
 
+**v2 (2026-11-28) changed nothing live.** Details are in
+`research/trading/v2/` and the v2 section of `docs/TRADING.md`.
+* **Return search.** A fully counted search of 215 more rules on dev
+  (14.6 effective trials) had five StepM survivors. All five failed the
+  deflated-Sharpe gate, and none replicated in 2026.
+* **Risk skill.** Model 1's one validated skill is risk forecasting. Its
+  QLIKE advantage over EWMA held out of sample in 2026, at about half the
+  dev size.
+* **Options (H_VOL).** A pre-registered test on 339 rebuilt option pairs
+  found that model 1's forecast adds nothing beyond listed implied
+  volatility. Its straddle rule missed the declared bar (dev p 0.053).
+* **Prospective test.** Model 2's only clean test is now declared
+  (`research/trading/PROSPECTIVE.md`): the first 400 sessions after
+  2026-11-27, read once.
+  - It tests ND1 and the risk skill.
+  - The declared sequential guard and demotion rules now run in
+    `trading-live`.
+
 ## Verdict (2026 holdout, frozen spec, run once)
 
 | pre-registered test | 2026 result | |

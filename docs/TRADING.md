@@ -18,7 +18,10 @@ is shown as information (Tier 0).
 
 ## Results (2026-11-27)
 
-**Today the trading model issues no high-conviction trade.** One family,
+**Today the trading model issues no high-conviction trade.** v2
+(2026-11-28; section below) searched 215 more rules and tested whether
+model 1 prices options. It changed nothing live, and it declared the
+prospective test. One family,
 ND, is at Tier 1 (pilot). That is the declared tier rule applied
 mechanically, and the evidence behind it is thin:
 - its 2024–25 edge is marginal;
@@ -157,11 +160,103 @@ and against the causal static mix.
     keeps the stock, which is not the rotation that was tested.
   - In a $10,000 account a cash-secured put is usually impossible: one
     contract ties up 100 × the strike.
-* **No prospective test is declared yet for model 2.** The declared
-  sequential guard (suspend a family whose running mean falls 2 s.e.
-  below dev after every 25 closed events) and the demotion rule are not
-  yet implemented. The live records are kept append-only, so each run's
-  tickets stay on file as they were issued.
+* **The prospective test is declared (`research/trading/PROSPECTIVE.md`).**
+  The declared sequential guard and demotion rule now run in
+  `trading-live` (see v2 below). The live records are kept append-only,
+  so each run's tickets stay on file as they were issued.
+
+## v2: a wide search, an options test, and the prospective test (2026-11-28)
+
+v2 asked whether anything beyond ND survives a much wider, fully counted
+search. The program, its rules and every checkpoint are in
+`research/trading/v2/` (`PLAN.md`, `LOG.md`).
+
+**1. The return search found nothing that survives (dev 2024–25 only;
+`outputs/trading/v2/`).**
+- **Registry.** 215 trials were logged append-only, including every
+  failure (`trials.jsonl`). They span earnings reactions and surprises,
+  no-news shocks, segment shocks, market timing, portfolio tilts and
+  ensembles.
+  - Effective number of independent trials: 14.6.
+  - Romano–Wolf StepM at FWER 10% rejected five.
+  - PBO is 0.184.
+  - The best deflated Sharpe ratio is 0.87, short of the required 0.95.
+  - So **no v2 candidate**.
+- **The five StepM survivors** were then read on 2026 once, as declared
+  beforehand. All five are bearish-information rules:
+  - earnings reactions of either sign of 3σ or more (E7), at H 20, H 40
+    and H 40 with inverse-vol weights;
+  - no-news winners (E11 at H 5, E11F at H 10).
+
+  **None replicated.**
+
+  | trial | dev t | 2026 t |
+  |---|---|---|
+  | E7 H 20 | 3.17 | 0.57 |
+  | E7 H 40 | 3.65 | −0.07 |
+  | E7 H 40, inverse vol | 3.38 | −0.24 |
+  | E11 winners H 5 | 3.30 | −0.50 |
+  | E11F H 10 | 3.16 | −0.38 |
+
+  The deflated-Sharpe gate was right to reject them.
+
+**2. Model 1's validated skill is risk forecasting, and the options market
+forecasts better.**
+- The sizing yardstick's QLIKE advantage over EWMA held out of sample in
+  2026, with dev calibration and nothing refit (`sizing_qlike_2026.json`):
+  - −0.046 at h 5 (t −1.30);
+  - −0.060 at h 20 (t −1.35).
+
+  That is about half the dev advantage, but in the same direction.
+- **H_VOL** (`research/trading/v2/H_VOL.md`) tested whether that skill
+  prices options.
+  - **Design.** It was pre-registered before any option price was
+    collected. The data are 339 ATM call/put pairs on 10 split-free names
+    for 34 monthly expiries, rebuilt from Robinhood's expired-contract
+    bars.
+  - **Amendment 1, the strike fix.** A strike the exchange listed after
+    the entry day has a placeholder entry bar. Those were replaced by the
+    nearest strike listed at entry. The rule was set before anything was
+    computed.
+  - **Results.**
+    - σ̃ adds no significant information about realized volatility beyond
+      implied volatility (t 0.97 on dev, 0.82 in 2026).
+    - Straddles bought when σ̃ ≥ IV beat the rest by 14.5 points on dev
+      (p 0.053, failing the declared 0.05) and by 27.6 points in 2026
+      (p 0.11).
+  - **Not supported.**
+  - **Period effect.** Realized volatility ran above implied throughout
+    2024–26, so straddles made money on average (+11% on dev, +28% in
+    2026). That reflects the AI rally's size, not model 1.
+  - **Post-hoc diagnostic.** Listed-option IV forecasts realized
+    volatility better than σ̃ in both periods. Where an option exists, its
+    IV is the better risk input.
+
+**3. The prospective test (`research/trading/PROSPECTIVE.md`).**
+- **Sample.** The first 400 sessions after 2026-11-27, about July 2028,
+  read once by `fearsignal trading-prospective`.
+  - The command refuses until the sample is complete.
+  - It refuses unless run from the declared code tree
+    (`config/trading_prospective.json`).
+- **P2-1.** Does ND1's information persist? This is the v1 gate series;
+  a test checks that it reproduces the 2026 holdout read exactly.
+- **P2-2.** Does model 1 still beat EWMA as a risk forecaster?
+- **Rule.** Each claim needs a one-sided p < 0.05 (Holm). The
+  consequences are mechanical: ND can reach Tier 2 or drop to Tier 0.
+- **Power,** stated in advance:
+  - P2-1: about 0.73 at the dev effect and about 0.30 at half of it;
+  - P2-2: about 0.57 at the 2026 effect.
+- **The five v2 survivors** are reported but carry no claim.
+- **Live monitors.** The declared sequential guard (25 events) and
+  demotion (40 events) now run in `trading-live` and can only lower ND's
+  tier. Today there are no closed prospective events, so ND stays at
+  Tier 1.
+
+**Net.** After v1, the 215-trial v2 search and the options test, model 2
+still issues **no high-conviction trade**. The live model is unchanged:
+ND1 is a Tier-1 pilot rotation, and SR and RF are off. Model 1's
+demonstrated value is as a risk yardstick: it beats EWMA, and it loses
+to listed-option IV.
 
 ## What model 2 reads from model 1
 
@@ -266,7 +361,11 @@ variants in total. `candidates.md` holds every rule and threshold.
 
 On dev the fear model's volatility yardstick beat EWMA(0.94) on QLIKE at
 5 and 20 sessions by about 7 and 6 s.e., so sizing uses it
-(`outputs/trading/sizing_calibration.json`).
+(`outputs/trading/sizing_calibration.json`). Out of sample in 2026 the
+advantage held at about half the size (t −1.30 and −1.35;
+`sizing_qlike_2026.json`). At the one-month option horizon, listed
+implied volatility forecast better than the yardstick in both periods
+(H_VOL).
 
 **Options**, declared but not yet wired into `trading-live`. SR could
 be expressed as a cash-secured put when the put's IV is at least 1.25×
@@ -278,5 +377,6 @@ ND puts need Tier 2.
 fearsignal trading-placebo                 # gate calibration on placebo families
 fearsignal trading-dev                     # once: writes config/trading_selected.json
 fearsignal trading-holdout --sha256 <sha256 of config/trading_selected.json>   # once
-fearsignal trading-live --days 6           # both models on recent sessions, and the next session
+fearsignal trading-live --days 6           # both models on recent sessions, the next session, and the live monitors
+fearsignal trading-prospective             # once, from the declared code tree, after 400 sessions past 2026-11-27
 ```
