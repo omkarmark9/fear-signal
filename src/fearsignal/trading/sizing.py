@@ -147,3 +147,29 @@ def risk_budget(tier: int, irp: float, n_recent: int, rho: float) -> float:
 
 def load_refits() -> list[dict]:
     return json.loads((RAW / "pit_refits.json").read_text())
+
+
+def qlike_oos(rf, refits: list[dict], kappa: dict, kappa_ewma: dict, start, end, hs=(5, 20)) -> dict:
+    """Out-of-sample QLIKE of the regime yardstick against EWMA, using level factors
+    calibrated elsewhere (dev). Nothing is fitted on [start, end]."""
+    r, el = rf.r, rf.eligible
+    ew = ewma_sigma(r.where(el))
+    win = (r.index >= pd.Timestamp(start)) & (r.index <= pd.Timestamp(end))
+    out = {}
+    for h in hs:
+        rv = realized_var(r, h)
+        ends_ok = (pd.Series(r.index, index=r.index).shift(-h) <= pd.Timestamp(end)).fillna(False).to_numpy()
+        rows = win & ends_ok
+        st = unscaled_sigma_tilde(rf.sigma, rf.P_calm, rf.P_stressed, rf.P_panic, refits, h)
+        k, ke = kappa[str(h)] if str(h) in kappa else kappa[h], kappa_ewma[str(h)] if str(h) in kappa_ewma else kappa_ewma[h]
+        f_reg = (k * st)[rows].where(el[rows])
+        f_ew = (ke * ew * np.sqrt(h))[rows].where(el[rows])
+        y = rv[rows]
+        m = f_reg.notna() & f_ew.notna() & y.notna() & (y > 0)
+        lr = qlike(f_reg ** 2, y).where(m)
+        le = qlike(f_ew ** 2, y).where(m)
+        d = (lr - le).mean(axis=1).dropna()
+        se = float(np.sqrt(spa.lrv(d.to_numpy(), "sb", 20.0)[0] / len(d)))
+        out[h] = {"regime": float(lr.stack().mean()), "ewma": float(le.stack().mean()),
+                  "diff_mean": float(d.mean()), "diff_se": se, "t": float(d.mean() / se), "n_days": int(len(d))}
+    return out

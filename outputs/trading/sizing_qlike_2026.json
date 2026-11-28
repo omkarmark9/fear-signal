@@ -1,0 +1,22 @@
+{
+ "oos_2026": {
+  "5": {
+   "regime": 0.46030090962750164,
+   "ewma": 0.5059473360447544,
+   "diff_mean": -0.04569444658319244,
+   "diff_se": 0.035067548983130345,
+   "t": -1.3030407858038293,
+   "n_days": 223
+  },
+  "20": {
+   "regime": 0.2332784674326953,
+   "ewma": 0.2933855672640051,
+   "diff_mean": -0.06021932013536229,
+   "diff_se": 0.04465344180110035,
+   "t": -1.3485930245555757,
+   "n_days": 208
+  }
+ },
+ "kappa_from": "dev (sizing_calibration.json)",
+ "note": "single out-of-sample re-check declared in research/trading/v2/LOG.md before running"
+}
