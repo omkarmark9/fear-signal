@@ -55,8 +55,10 @@ HALF_DAYS = pd.to_datetime(["2023-07-03", "2023-11-24", "2024-07-03", "2024-11-2
                             "2025-07-03", "2025-11-28", "2025-12-24", "2026-11-27", "2026-12-24",
                             # 2027: only the day after Thanksgiving (July 4 is a Sunday and
                             # Christmas a Saturday, observed Monday July 5 and Friday Dec 24)
-                            "2027-11-26"])
-HALF_DAYS_COVER_THROUGH = pd.Timestamp("2027-12-31")     # live code refuses dates beyond this
+                            "2027-11-26",
+                            # 2028: July 3 and the day after Thanksgiving (Christmas Eve is a Sunday)
+                            "2028-07-03", "2028-11-24"])
+HALF_DAYS_COVER_THROUGH = pd.Timestamp("2028-12-31")     # live code refuses dates beyond this
 
 
 def history() -> tuple[pd.DataFrame, pd.Series]:

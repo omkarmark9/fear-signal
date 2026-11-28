@@ -36,8 +36,11 @@ def state(source: str = "yahoo"):
     return mk, st, rf, prices, report
 
 
-def family_status() -> dict:
-    """Tier per family from config/trading_selected.json and the holdout results."""
+def family_status(apply_prospective: bool = True) -> dict:
+    """Tier per family from config/trading_selected.json and the holdout results.
+
+    Once the prospective read has run under the committed declaration, its mechanical
+    consequence sets ND's tier (research/trading/PROSPECTIVE.md, "Consequences")."""
     out = {"SR": {"chosen": "SR1", "tier": 0, "why": "dev selection not run"},
            "ND": {"chosen": "ND1", "tier": 0, "why": "dev selection not run"},
            "RF": {"chosen": "RF1", "state": "OFF", "why": "dev selection not run"}}
@@ -64,6 +67,8 @@ def family_status() -> dict:
         else:
             o.update(tier=2, why="adopted; holdout agrees with t >= 1")
         out[k] = o
+    if apply_prospective and out["ND"].get("adopted"):
+        out["ND"] = _prospective_consequence(out["ND"])
     r = sel["RF"]
     h = hold.get(f"RF.{r['chosen']}")
     confirmed = bool(h and h.get("confirmed") and h.get("status") == "confirmation read")
@@ -71,6 +76,23 @@ def family_status() -> dict:
                  "why": "adopted and confirmed on 2026" if confirmed else
                  ("not adopted on dev" if not r["adopted"] else "not confirmed on 2026")}
     return out
+
+
+def _prospective_consequence(nd: dict) -> dict:
+    from .. import frozen
+    from . import prospective
+    path = prospective.OUT / "read.json"
+    if not (path.exists() and prospective.DECL.exists()):
+        return nd
+    rd = json.loads(path.read_text())
+    try:
+        ok = rd.get("declaration_sha256") == frozen.committed_spec_hash(prospective.DECL)
+    except Exception:
+        ok = False
+    if not ok:
+        return {**nd, "prospective": "read.json is not from the committed declaration; ignored"}
+    d = rd["decision"]
+    return {**nd, "tier": int(d["ND_tier_after"]), "why": f"prospective read: {d['why']}"}
 
 
 def model1_table(mk: pd.DataFrame, st: pd.DataFrame, rf: signals.RuleFeatures, days) -> pd.DataFrame:
@@ -163,11 +185,7 @@ def main(n_days: int = 6) -> dict:
     # declared live monitors (research/trading/PROSPECTIVE.md): they can lower ND's tier, never raise it
     from . import prospective
     if status["ND"].get("tier", 0) > 0:
-        mon = prospective.nd_monitor(rf, prices, int(status["ND"]["tier"]))
-        status["ND"]["monitor"] = mon
-        if mon["tier_effective"] < status["ND"]["tier"]:
-            status["ND"]["why"] += f"; lowered to Tier {mon['tier_effective']} by the live monitor"
-            status["ND"]["tier"] = mon["tier_effective"]
+        status = prospective.apply_monitor(status, prospective.nd_monitor(rf, prices, int(status["ND"]["tier"])))
     m1 = model1_table(mk, st, rf, days)
     tk = tickets(rf, prices, status, days)
     E = rf_exposure(rf, prices, status, days)

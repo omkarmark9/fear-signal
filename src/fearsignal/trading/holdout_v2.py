@@ -2,8 +2,8 @@
 
 Declared before the read: no v2 trial passed the full selection rule, so the
 StepM-rejected trials are read on 2026 once, descriptively. They stay at
-Tier 0 and become the prospective test's pre-registered hypotheses. The read
-runs once. Its start is logged before any 2026 outcome is computed.
+Tier 0 and become the prospective test's pre-registered replications, with a strict
+rule (research/trading/PROSPECTIVE.md). The read runs once. Its start is logged before any 2026 outcome is computed.
 """
 
 from __future__ import annotations

@@ -52,10 +52,11 @@ VENDOR_COLS = ("S", "K", "call", "put", "S_T")
 
 # ----------------------------------------------------------------------------- sample
 
-def expiries(sessions: pd.DatetimeIndex) -> list[pd.Timestamp]:
+def expiries(sessions: pd.DatetimeIndex, first_month: str = FIRST_MONTH,
+             last_month: str = LAST_MONTH) -> list[pd.Timestamp]:
     """Standard monthly expiries: the third Friday, or the session before it when it is a holiday."""
     out = []
-    for m in pd.period_range(FIRST_MONTH, LAST_MONTH, freq="M"):
+    for m in pd.period_range(first_month, last_month, freq="M"):
         d = m.start_time
         e = d + pd.Timedelta(days=(4 - d.weekday()) % 7 + 14)
         if e not in sessions:
@@ -75,10 +76,10 @@ def strike_candidates(spot: float) -> list[float]:
     return sorted(ks, key=lambda k: (abs(k - spot), k))
 
 
-def build_tasks(close: pd.DataFrame) -> list[dict]:
+def build_tasks(close: pd.DataFrame, first_month: str = FIRST_MONTH, last_month: str = LAST_MONTH) -> list[dict]:
     sessions = close.index
     rows = []
-    for e in expiries(sessions):
+    for e in expiries(sessions, first_month, last_month):
         ent = entry_session(sessions, e)
         for n in NAMES:
             s = float(close.loc[ent, n])
@@ -288,6 +289,42 @@ def analyse(df: pd.DataFrame, seed: int = 0) -> dict:
     return out
 
 
+def _sha256(path) -> str | None:
+    import hashlib
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest() if Path(path).exists() else None
+
+
+def posthoc_qlike(dev: pd.DataFrame, y26: pd.DataFrame) -> dict:
+    """POST HOC, not pre-registered (H_VOL.md): QLIKE of each forecast's variance against RV at the
+    option horizon, and its month-clustered mean differential against raw IV.
+
+    'IV x dev level' scales IV by sqrt(sum RV^2 / sum IV^2) fitted on the dev pairs, so it is
+    in-sample on dev."""
+    ql = lambda f, y: y ** 2 / f ** 2 - np.log(y ** 2 / f ** 2) - 1
+    k_iv = float(np.sqrt((dev["rv_tot"] ** 2).sum() / (dev["iv_tot"] ** 2).sum()))
+    out = {"note": "post hoc; not pre-registered; differentials clustered by expiry month", "iv_dev_level": k_iv}
+    for name, x in (("dev", dev), ("2026", y26)):
+        y = x["rv_tot"]
+        base = ql(x["iv_tot"], y)
+        fc = {"sigma_tilde": x["st_tot"], "iv_x_dev_level": k_iv * x["iv_tot"],
+              "geometric_mean_sigma_tilde_iv": np.sqrt(x["st_tot"] * x["iv_tot"])}
+        row = {"iv": {"qlike": float(base.mean())}}
+        for k, f in fc.items():
+            l = ql(f, y)
+            dm = (l - base).groupby(x["month"]).mean()
+            row[k] = {"qlike": float(l.mean()), "diff_vs_iv": float(dm.mean()),
+                      "t": float(dm.mean() / (dm.std(ddof=1) / np.sqrt(len(dm)))), "months": int(len(dm))}
+        out[name] = row
+    return out
+
+
+def posthoc_main() -> dict:
+    d = {p: pd.read_csv(OUT / f"hvol_pairs_{p}.csv") for p in ("dev", "2026")}
+    res = posthoc_qlike(d["dev"], d["2026"])
+    protocol.write_json(OUT / "hvol_posthoc_qlike.json", res)
+    return res
+
+
 # ----------------------------------------------------------------------------- driver
 
 def inputs():
@@ -324,9 +361,11 @@ def main(period: str, rerun_reason: str | None = None) -> dict:
     bars = load_bars()
     got = set(zip(bars["name"], bars["expiry"]))
     missing = [t for t in tasks if (t["name"], t["expiry"]) not in got]
-    df, excl = pairs(bars, close, r, stilde, kappa20, earn)
-    sel = df[df["period"] == period].reset_index(drop=True)
     in_period = lambda e: (pd.Timestamp(e) <= DEV_LAST_EXPIRY) == (period == "dev")
+    # exclusions are counted for this period only (review HV-4)
+    df, excl = pairs(bars[[in_period(e) for e in bars["expiry"]]].reset_index(drop=True), close, r, stilde,
+                     kappa20, earn)
+    sel = df[df["period"] == period].reset_index(drop=True)
     excl_p = {}
     for b in bars.itertuples(index=False):
         if in_period(b.expiry) and b.status != "ok":
@@ -339,6 +378,10 @@ def main(period: str, rerun_reason: str | None = None) -> dict:
            "excluded_after_collection": {k: v for k, v in excl.items()
                                          if k not in ("missing_bar", "no_contract", "error", "not_listed_at_entry")},
            "n_used": int(len(sel)), "kappa20": kappa20, "rate": RATE, "cost": COST, "inputs": hashes,
+           # provenance (review HV-7): every input the read used, and the code it ran
+           "price_and_model_inputs": protocol.input_manifest(), "code": protocol.code_state(),
+           "earnings_calendar_sha256": _sha256(protocol.RAW / "earnings_calendar.json"),
+           "bootstrap": {"B": B, "seed": 0, "note": "draws with an empty group are dropped (review HV-8)"},
            **analyse(sel)}
     h2 = res["H_VOL2"]
     if period == "dev":

@@ -1,0 +1,50 @@
+{
+ "note": "post hoc; not pre-registered; differentials clustered by expiry month",
+ "iv_dev_level": 1.1268304894030767,
+ "dev": {
+  "iv": {
+   "qlike": 0.24888467971359146
+  },
+  "sigma_tilde": {
+   "qlike": 0.3455007884629157,
+   "diff_vs_iv": 0.0962185419100094,
+   "t": 1.4714297228608546,
+   "months": 23
+  },
+  "iv_x_dev_level": {
+   "qlike": 0.20896955930127875,
+   "diff_vs_iv": -0.03987308069457385,
+   "t": -1.3041957288460153,
+   "months": 23
+  },
+  "geometric_mean_sigma_tilde_iv": {
+   "qlike": 0.26007822716927975,
+   "diff_vs_iv": 0.011046615660698538,
+   "t": 0.394977421577393,
+   "months": 23
+  }
+ },
+ "2026": {
+  "iv": {
+   "qlike": 0.2216860771929651
+  },
+  "sigma_tilde": {
+   "qlike": 0.26636649498490506,
+   "diff_vs_iv": 0.04468041779194005,
+   "t": 0.4407000900996923,
+   "months": 11
+  },
+  "iv_x_dev_level": {
+   "qlike": 0.16599533873901018,
+   "diff_vs_iv": -0.05569073845395489,
+   "t": -1.4617701978194275,
+   "months": 11
+  },
+  "geometric_mean_sigma_tilde_iv": {
+   "qlike": 0.18857443486945025,
+   "diff_vs_iv": -0.033111642323514885,
+   "t": -0.5245472868504755,
+   "months": 11
+  }
+ }
+}

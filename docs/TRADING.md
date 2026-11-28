@@ -200,8 +200,8 @@ search. The program, its rules and every checkpoint are in
 
   The deflated-Sharpe gate was right to reject them.
 
-**2. Model 1's validated skill is risk forecasting, and the options market
-forecasts better.**
+**2. Model 1's validated skill is risk forecasting. Against the options
+market it adds no significant information.**
 - The sizing yardstick's QLIKE advantage over EWMA held out of sample in
   2026, with dev calibration and nothing refit (`sizing_qlike_2026.json`):
   - −0.046 at h 5 (t −1.30);
@@ -227,17 +227,21 @@ forecasts better.**
   - **Not supported.**
   - **Period effect.** Realized volatility ran above implied throughout
     2024–26, so straddles made money on average (+11% on dev, +28% in
-    2026). That reflects the AI rally's size, not model 1.
-  - **Post-hoc diagnostic.** Listed-option IV forecasts realized
-    volatility better than σ̃ in both periods. Where an option exists, its
-    IV is the better risk input.
+    2026). The σ̃ ≥ IV group carried most of those gains, but σ̃'s level
+    was calibrated in-sample on dev, so that is not clean evidence.
+  - **Post-hoc diagnostic** (not pre-registered and not significant).
+    Point estimates favour listed IV over σ̃: QLIKE differential t 1.5 on
+    dev and 0.4 in 2026. Whether IV would make a better sizing yardstick
+    is a hypothesis, not a finding.
 
 **3. The prospective test (`research/trading/PROSPECTIVE.md`).**
-- **Sample.** The first 400 sessions after 2026-11-27, about July 2028,
-  read once by `fearsignal trading-prospective`.
-  - The command refuses until the sample is complete.
-  - It refuses unless run from the declared code tree
-    (`config/trading_prospective.json`).
+- **Sample.** The first 400 NYSE sessions after 2026-11-27
+  (2026-11-30..2028-07-03, from the exchange calendar), read once by
+  `fearsignal trading-prospective`. The command refuses:
+  - until the sample is complete;
+  - unless the code tree, every committed input, the hash-locked raw
+    inputs and the environment match `config/trading_prospective.json`;
+  - if any trace of an earlier read exists, unless a reason is logged.
 - **P2-1.** Does ND1's information persist? This is the v1 gate series;
   a test checks that it reproduces the 2026 holdout read exactly.
 - **P2-2.** Does model 1 still beat EWMA as a risk forecaster?
@@ -246,17 +250,22 @@ forecasts better.**
 - **Power,** stated in advance:
   - P2-1: about 0.73 at the dev effect and about 0.30 at half of it;
   - P2-2: about 0.57 at the 2026 effect.
-- **The five v2 survivors** are reported but carry no claim.
-- **Live monitors.** The declared sequential guard (25 events) and
-  demotion (40 events) now run in `trading-live` and can only lower ND's
-  tier. Today there are no closed prospective events, so ND stays at
-  Tier 1.
+- **Replications, outside the Holm family.**
+  - **The five v2 survivors** must reach a one-sided p < 0.01 and a
+    placebo percentile ≥ 0.95. They use a pinned earnings calendar that
+    covers the sample, or they are reported as not computable.
+  - **H_VOL2** is repeated on the 2027-01..2028-06 expiries.
+- **Live monitors.**
+  - The declared sequential guard (every 25 events) and the rolling
+    40-trade demotion now run in `trading-live`.
+  - They can only lower ND's tier, and every firing is logged and stands.
+  - Today there are no closed prospective events, so ND stays at Tier 1.
 
 **Net.** After v1, the 215-trial v2 search and the options test, model 2
 still issues **no high-conviction trade**. The live model is unchanged:
 ND1 is a Tier-1 pilot rotation, and SR and RF are off. Model 1's
-demonstrated value is as a risk yardstick: it beats EWMA, and it loses
-to listed-option IV.
+demonstrated value is as a risk yardstick. It beats EWMA, and it adds
+no significant information beyond listed-option IV.
 
 ## What model 2 reads from model 1
 
@@ -363,8 +372,9 @@ On dev the fear model's volatility yardstick beat EWMA(0.94) on QLIKE at
 5 and 20 sessions by about 7 and 6 s.e., so sizing uses it
 (`outputs/trading/sizing_calibration.json`). Out of sample in 2026 the
 advantage held at about half the size (t −1.30 and −1.35;
-`sizing_qlike_2026.json`). At the one-month option horizon, listed
-implied volatility forecast better than the yardstick in both periods
+`sizing_qlike_2026.json`). At the one-month option horizon, the
+yardstick added no significant information beyond listed implied
+volatility. Post-hoc point estimates favour IV, but not significantly
 (H_VOL).
 
 **Options**, declared but not yet wired into `trading-live`. SR could

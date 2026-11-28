@@ -62,8 +62,9 @@ every signal with its tier.
   QLIKE advantage over EWMA held out of sample in 2026, at about half the
   dev size.
 * **Options (H_VOL).** A pre-registered test on 339 rebuilt option pairs
-  found that model 1's forecast adds nothing beyond listed implied
-  volatility. Its straddle rule missed the declared bar (dev p 0.053).
+  found that model 1's forecast adds no significant information beyond
+  listed implied volatility. Its straddle rule missed the declared bar
+  (dev p 0.053), so it is not supported.
 * **Prospective test.** Model 2's only clean test is now declared
   (`research/trading/PROSPECTIVE.md`): the first 400 sessions after
   2026-11-27, read once.

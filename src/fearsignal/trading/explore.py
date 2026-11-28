@@ -49,7 +49,10 @@ class Trial:
 class Ctx:
     """Inputs shared by every trial (point-in-time, hash-locked)."""
 
-    def __init__(self, rf=None, prices=None):
+    def __init__(self, rf=None, prices=None, earnings_path=None, A_live=None, s_live=None):
+        """``earnings_path`` overrides the v2 calendar, as the prospective read does with its own
+        pinned calendar. ``A_live``/``s_live`` give sigma-tilde from one fixed model (frozen v3)
+        instead of the point-in-time refits. The defaults reproduce v2 exactly."""
         if rf is None:
             rf, prices = backtest.load_inputs()
         self.rf, self.prices = rf, prices
@@ -59,13 +62,15 @@ class Ctx:
         self._ew = None
         self._rho: dict = {}
         self.refits = sizing.load_refits() if (protocol.RAW / "pit_refits.json").exists() else []
+        self.A_live, self.s_live = A_live, s_live
+        self.earnings_path = earnings_path
         self.earnings = None
 
     def stilde(self, h: int) -> pd.DataFrame:
         if h not in self._st:
             rf = self.rf
             self._st[h] = sizing.unscaled_sigma_tilde(rf.sigma, rf.P_calm, rf.P_stressed, rf.P_panic,
-                                                      self.refits, h)
+                                                      self.refits, h, self.A_live, self.s_live)
         return self._st[h]
 
     def ewma(self) -> pd.DataFrame:
@@ -274,7 +279,7 @@ def earnings_sessions(ctx: Ctx) -> pd.DataFrame:
     reports, the next session for 'pm' (after-close) reports. Unknown timing
     counts as the report date, so the reaction session is never too early."""
     if ctx.earnings is None:
-        path = protocol.RAW / "earnings_calendar.json"
+        path = getattr(ctx, "earnings_path", None) or protocol.RAW / "earnings_calendar.json"
         rows = json.loads(path.read_text())["rows"]
         # an unverified (tentative) date is dropped when the same fiscal quarter has a verified date
         verified = {(r["symbol"], r.get("year"), r.get("quarter")) for r in rows if r["report"].get("verified")}

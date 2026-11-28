@@ -1,7 +1,8 @@
 """NYSE sessions after the last bar, for dating live entries and exits.
 
 Past sessions come from the price index. Future ones are weekdays minus the
-exchange's full-day holidays (NYSE's published 2026-2027 schedule). Early
+exchange's full-day holidays (NYSE's published 2026-2028 schedule, nyse.com/markets/hours-calendars,
+checked 2026-11-28). Early
 closes are still sessions.
 """
 
@@ -16,6 +17,9 @@ NYSE_HOLIDAYS = pd.to_datetime([
     # 2027
     "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31", "2027-06-18",
     "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24",
+    # 2028 (New Year's Day falls on a Saturday and is not observed)
+    "2028-01-17", "2028-02-21", "2028-04-14", "2028-05-29", "2028-06-19",
+    "2028-07-04", "2028-09-04", "2028-11-23", "2028-12-25",
 ])
 
 
