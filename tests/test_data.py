@@ -118,6 +118,26 @@ def test_align_adjustment_basis_refuses_an_all_nan_overlap():
         data.align_adjustment_basis(d, h)
 
 
+def test_align_adjustment_basis_ignores_an_overlap_bar_one_pull_has_broken():
+    """The SNDK 2026-11-23 case: a NaN close beside a stale low in the earlier pull, a good bar
+    in the later one. The panel never uses the broken bar, so it must not block the alignment."""
+    d = _long(pd.bdate_range("2025-12-01", "2025-12-31"))
+    h = _long(pd.bdate_range("2025-12-01", "2026-01-09"))
+    i = d.index[d["date"] == pd.Timestamp("2025-12-15")][0]
+    d.loc[i, ["close", "adj_close"]] = np.nan
+    d.loc[i, "low"] = 74.87
+    out = data.align_adjustment_basis(d, h)
+    pd.testing.assert_frame_equal(out.reset_index(drop=True), d.reset_index(drop=True))
+
+
+def test_align_adjustment_basis_names_the_bar_that_differs():
+    d = _long(pd.bdate_range("2025-12-01", "2025-12-31"))
+    h = _long(pd.bdate_range("2025-12-01", "2026-01-09"))
+    h.loc[h["date"] == pd.Timestamp("2025-12-04"), "low"] *= 1.2
+    with pytest.raises(ValueError, match="NVDA 2025-12-04"):
+        data.align_adjustment_basis(d, h)
+
+
 def _rh_json(tmp_path, bars_by_symbol, name="b.json"):
     import json as _json
     doc = {"data": {"results": [

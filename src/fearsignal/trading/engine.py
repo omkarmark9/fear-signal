@@ -50,6 +50,7 @@ class Prices:
     dollar_volume: pd.DataFrame
     close: pd.DataFrame | None = None       # raw (unadjusted) close, for price floors and options
     volume: pd.DataFrame | None = None      # share volume
+    report: dict | None = None              # live caches: names restored from the archive
 
     @property
     def dates(self) -> pd.DatetimeIndex:
@@ -61,10 +62,12 @@ class Prices:
 
     @classmethod
     def load(cls, live: bool = False) -> "Prices":
-        """The declared backtest prices; ``live=True`` reads the live refresh if one exists."""
+        """The declared backtest prices; ``live=True`` reads the live refresh if one exists,
+        with names the vendor no longer serves restored from the archive (archive.py)."""
         from .market_data import LIVE_PATH, load
-        f = load(LIVE_PATH if live and LIVE_PATH.exists() else None)
-        return cls(f["adj_open"], f["adj_close"], f["dollar_volume"], f["close"], f["volume"])
+        use_live = live and LIVE_PATH.exists()
+        f = load(LIVE_PATH, archive_kind="trade") if use_live else load(None)
+        return cls(f["adj_open"], f["adj_close"], f["dollar_volume"], f["close"], f["volume"], f.get("report"))
 
 
 @dataclass

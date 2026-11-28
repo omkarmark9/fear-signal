@@ -211,15 +211,22 @@ def run_holdout(selection: dict) -> dict:
         st = selection["families"][v.family]
         out[v.id]["status"] = "confirmation read" if st["adopted"] else "descriptive (not adopted on dev)"
     rs = selection["families"]["RF"]
-    E = F.rf_weights(rs["chosen"], rf.M_pct, F.har_forecast(engine.basket_legs(prices)["cc"]), rf.half_day)
-    legs = engine.basket_legs(prices)
-    s, e = gates.HOLDOUT
-    b = F.rf_stats(E, legs, s, e)
-    c25 = F.rf_stats(E, legs, s, e, cost_bps=25.0)
-    d2 = F.rf_stats(E, legs, s, e, delay=2)
-    a1 = b["var_ratio"] <= 0.85
-    a2 = all(r["mean_d"] >= -0.5 * r["se_d"] for r in (b, c25, d2))
-    out["RF." + rs["chosen"]] = {"stats": {k: v for k, v in b.items() if k != "d"}, "A1": bool(a1), "A2": bool(a2),
-                                 "confirmed": bool(rs["adopted"] and a1 and a2),
+    c = rf_criteria(rs["chosen"], rf, prices, *gates.HOLDOUT)
+    out["RF." + rs["chosen"]] = {**c, "confirmed": bool(rs["adopted"] and c["A1"] and c["A2"]),
                                  "status": "confirmation read" if rs["adopted"] else "descriptive (not adopted on dev)"}
     return out
+
+
+def rf_criteria(name: str, rf, prices, start, end) -> dict:
+    """RF's declared confirmation criteria on [start, end], as the 2026 read applied them:
+    A1, variance ratio <= 0.85; A2, mean_d >= -0.5 se_d at 10 bps, at 25 bps and with a
+    two-day delay."""
+    from . import families as F
+    E = F.rf_weights(name, rf.M_pct, F.har_forecast(engine.basket_legs(prices)["cc"]), rf.half_day)
+    legs = engine.basket_legs(prices)
+    b = F.rf_stats(E, legs, start, end)
+    c25 = F.rf_stats(E, legs, start, end, cost_bps=25.0)
+    d2 = F.rf_stats(E, legs, start, end, delay=2)
+    a1 = b["var_ratio"] <= 0.85
+    a2 = all(r["mean_d"] >= -0.5 * r["se_d"] for r in (b, c25, d2))
+    return {"stats": {k: v for k, v in b.items() if k != "d"}, "A1": bool(a1), "A2": bool(a2)}

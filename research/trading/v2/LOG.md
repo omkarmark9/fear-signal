@@ -248,3 +248,59 @@ StepM survivors would "become the prospective test's pre-registered
 hypotheses". PROSPECTIVE.md lists them as reported only. That will be
 reconciled with a declared statistic and a strict replication rule
 before the lock.
+
+## 2026-11-28, correction: IV does not "beat" σ̃
+
+The heading and text of the H_VOL read entry above said "IV beats σ̃" and
+"Model 1's forecast beats EWMA but not implied volatility". The IV
+comparison is a post-hoc QLIKE diagnostic, and it is **not
+significant**: t 1.5 on dev and 0.4 in 2026 (H_VOL.md, HV-1). The
+correct reading:
+- listed IV's point estimates are better than σ̃'s, but not
+  significantly;
+- whether IV would make a better sizing yardstick is a hypothesis, not a
+  finding.
+
+The entry is left as it was written. This entry corrects it.
+
+## 2026-11-28, review fixes (65fd237), then a second verification before the lock
+
+**65fd237** fixed PR-1..PR-11 and HV-1..HV-9 (`REVIEW_hvol_prospective.md`).
+That closes the open item above. The five v2 survivors are now
+pre-registered replications with a strict rule: p < 0.01 and a placebo
+percentile ≥ 0.95.
+
+**Second verification.** A 141-agent adversarial workflow verified those
+fixes before the lock (`REVIEW_prospective_lock.md`). It confirmed 63
+findings, which reduce to 17 defects, L-1..L-17. All are fixed or
+declared before the lock. The ones that mattered most:
+- **L-1.** An unscheduled NYSE closure would have made the read refuse
+  forever. A logged `--closed` declaration, checked against the data, now
+  absorbs it.
+- **L-2.** The firings log sat in a tracked folder that the read's
+  checkout deletes. It moved to `data/raw`.
+- **L-4.** After a read, live would have applied in-sample firings again.
+  Live now counts afresh after the sample.
+- **L-5.** An empty ND1 trade set crashed `trading-live`, with about an
+  80% chance on 2026-12-30.
+- **L-9.** A broken SNDK bar in the locked holdout pull would block every
+  live run once Yahoo backfills it. The alignment now uses only usable
+  overlap bars, and every existing panel is byte-identical.
+- **L-10.** Names the vendor purges would leave the read with their
+  events, which biases P2-1 toward a claim. Live pulls are now archived
+  per ticker.
+- **L-13.** The monitors' CR1-by-episode s.e. demoted ND on its own dev
+  events. Both monitors now use the per-trade s.e. At the dev effect,
+  ending at Tier 0 falls from 44% to 24% of samples, with the same
+  detection when the edge is gone (`outputs/trading/monitor_oc.json`).
+
+The claims P2-1 and P2-2, their thresholds and their power are
+unchanged.
+
+**Next.**
+- Commit the fixes.
+- Write `config/trading_prospective.json` from
+  `prospective.declaration_record(<that commit>)`, commit it and push.
+- Seed the per-ticker archive from the current pulls (git-ignored).
+- Confirm that `fearsignal trading-prospective` refuses with "only N
+  exist".

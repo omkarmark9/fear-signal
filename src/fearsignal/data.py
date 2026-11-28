@@ -90,6 +90,7 @@ def download(name: str, start: str, end_exclusive: str, tickers: list[str] | Non
     for t, sub in bars.items():
         sub = sub.rename(columns={"Adj Close": "adj_close", "Close": "close", "Low": "low"})
         sub.index = pd.DatetimeIndex(sub.index).tz_localize(None).normalize()
+        sub = sub[~sub.index.duplicated(keep="last")]      # one bar per session (a duplicate would break the pivot)
         sub.index.name = "date"
         sub = sub.copy()
         sub["ticker"] = t
@@ -101,6 +102,9 @@ def download(name: str, start: str, end_exclusive: str, tickers: list[str] | Non
     long.to_parquet(path, index=False)
     if manifest:
         write_manifest(name, long)
+    if name == "live":          # live pulls are archived per ticker (archive.py)
+        from . import archive
+        archive.update(long, "live")
     return path
 
 
@@ -201,28 +205,40 @@ def align_adjustment_basis(dev: pd.DataFrame, hold: pd.DataFrame, tol: float = 1
     none inside it cannot be aligned, which is also an error, not a silent
     mix of bases. When nothing happened between pulls both constants are
     exactly 1 and the data are returned unchanged.
+
+    Only overlap rows that are usable in both pulls enter the constants and the
+    check, by the rule ``to_panel`` applies: all three fields finite and > 0. A
+    bar one pull has broken (a NaN close beside a stale low, say) is never a
+    bar the panel uses, so it cannot make two consistent pulls look different.
     """
-    ov = dev.merge(hold, on=["date", "ticker"], suffixes=("_d", "_h"))
-    if ov.empty:
+    ov_all = dev.merge(hold, on=["date", "ticker"], suffixes=("_d", "_h"))
+    if ov_all.empty:
         raise ValueError("pulls do not overlap; cannot align the price basis")
+    usable = np.all([np.isfinite(ov_all[f"{f}{s}"].to_numpy(float)) & (ov_all[f"{f}{s}"].to_numpy(float) > 0)
+                     for f in FIELDS for s in ("_d", "_h")], axis=0)
+    ov = ov_all[usable]
     tick = ov["ticker"]
     k_raw = (ov["close_h"] / ov["close_d"]).groupby(tick).median()      # split factor
     k_adj = (ov["adj_close_h"] / ov["adj_close_d"]).groupby(tick).median()
     for name, col, k in (("raw closes", "close", k_raw), ("raw lows", "low", k_raw),
                          ("adjusted closes", "adj_close", k_adj)):
-        spread = (ov[f"{col}_h"] / ov[f"{col}_d"] / tick.map(k) - 1).abs().max()
-        if spread > tol:
+        if ov.empty:
+            break
+        rel = (ov[f"{col}_h"] / ov[f"{col}_d"] / tick.map(k).astype(float) - 1).abs()
+        if rel.max() > tol:
+            i = rel.idxmax()
             raise ValueError(f"{name} differ between pulls by more than a per-ticker constant "
-                             f"(max rel. spread {spread:.2e})")
-    # tickers with rows on both sides of the overlap must have overlap rows
-    lo, hi = pd.to_datetime(ov["date"]).min(), pd.to_datetime(ov["date"]).max()
+                             f"(max rel. spread {rel.max():.2e}, at {ov.loc[i, 'ticker']} "
+                             f"{pd.Timestamp(ov.loc[i, 'date']).date()})")
+    # tickers with rows on both sides of the overlap must have usable overlap rows
+    lo, hi = pd.to_datetime(ov_all["date"]).min(), pd.to_datetime(ov_all["date"]).max()
     before = set(dev.loc[pd.to_datetime(dev["date"]) < lo, "ticker"])
     after = set(hold.loc[pd.to_datetime(hold["date"]) > hi, "ticker"])
     # a factor that is NaN (e.g. every overlap close missing) does not count as aligned
     aligned = set(k_raw.dropna().index) & set(k_adj.dropna().index)
     unaligned = sorted((before & after) - aligned)
     if unaligned:
-        raise ValueError(f"no overlap rows to align {unaligned}; refusing to mix price bases")
+        raise ValueError(f"no usable overlap rows to align {unaligned}; refusing to mix price bases")
     dev = dev.copy()
     kr = dev["ticker"].map(k_raw).fillna(1.0)
     dev["close"] = dev["close"] * kr
@@ -318,9 +334,14 @@ def live_panel(source: str = "yahoo", live_path=None) -> tuple[Panel, dict]:
     past = _frozen_history()
     if source == "yahoo":
         live = pd.read_parquet(live_path or (RAW / "live.parquet"))
+        report = {"source": "yahoo"}
+        if live_path is None:   # the live cache, not a frozen copy: restore purged names (archive.py)
+            from . import archive
+            live, arch = archive.merge(live, "live")
+            report["from_archive"] = arch["from_archive"]
         past = align_adjustment_basis(past, live)
         new = live[pd.to_datetime(live["date"]) > V3_ESTIMATION_END]
-        return to_panel(pd.concat([past, new], ignore_index=True)), {"source": "yahoo"}
+        return to_panel(pd.concat([past, new], ignore_index=True)), report
     if source != "robinhood":
         raise ValueError(f"unknown source {source!r}")
     rh = robinhood_long(sorted((RAW / "robinhood").glob("*.json")))

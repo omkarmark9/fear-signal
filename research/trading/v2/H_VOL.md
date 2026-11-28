@@ -238,9 +238,15 @@ reading of the level signal and the MU label were corrected above
 
   So the size of the "consistent direction" is fragile.
 - **The interpolated flag (HV-6).**
-  - 129 of the 238 bars checked in pass 2 had no `interpolated` field.
-  - All 16 bars that were flagged had closes of exactly 0.01, so the
-    "close above 0.01" test caught every known placeholder.
+  - Pass 2 checked 238 candidate strikes, of which 202 were listed. 93 of
+    the 202 listed strikes had no `interpolated` field on their bars; the
+    other 36 candidates were not listed, so they had no bars at all.
+    (An earlier version said "129 of the 238 bars", which counted the
+    unlisted candidates as bars.)
+  - Every flagged placeholder had closes of exactly 0.01: 16 pairs, or
+    32 bars, since both legs were flagged each time (15 pairs from pass 1
+    and 1 from pass 2). So the "close above 0.01" test caught every known
+    placeholder.
   - Pass-2 pairs' parity residuals (median 0.81%) match pass 1's (0.88%).
 - **Dropped draws (HV-8).** A bootstrap draw with no pair in one group is
   dropped. The 2026 secondary used 1,999 of 2,000 draws.
@@ -256,5 +262,7 @@ reading of the level signal and the MU label were corrected above
     when the review checked them.
   - The reads ran at 61fa3ab: the inputs lock is that commit's, and the
     outputs were committed at 5a96922.
-- **Exclusion counts (HV-4).** They are now kept per period. Both periods
-  had none.
+- **Exclusion counts (HV-4).** They are now kept per period. No pair was
+  excluded after collection in either period. Dev's one exclusion, MU
+  2025-03-21, is `not_listed_at_entry` (an earlier version said "both
+  periods had none").

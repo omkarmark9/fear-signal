@@ -352,6 +352,8 @@ def main(period: str, rerun_reason: str | None = None) -> dict:
     if period == "2026" and not (OUT / "hvol_dev.json").exists():
         raise RuntimeError("read dev first")
     hashes = check_inputs()
+    code = protocol.code_state()            # refuses a dirty tree before the start is logged
+    manifest = protocol.input_manifest()
     with open(RUNLOG, "a") as fh:
         fh.write(f"| {datetime.now(timezone.utc):%Y-%m-%d %H:%M} | {period} read started | {rerun_reason or 'first read'} |\n")
     close, r, stilde, kappa20, earn = inputs()
@@ -379,7 +381,7 @@ def main(period: str, rerun_reason: str | None = None) -> dict:
                                          if k not in ("missing_bar", "no_contract", "error", "not_listed_at_entry")},
            "n_used": int(len(sel)), "kappa20": kappa20, "rate": RATE, "cost": COST, "inputs": hashes,
            # provenance (review HV-7): every input the read used, and the code it ran
-           "price_and_model_inputs": protocol.input_manifest(), "code": protocol.code_state(),
+           "price_and_model_inputs": manifest, "code": code,
            "earnings_calendar_sha256": _sha256(protocol.RAW / "earnings_calendar.json"),
            "bootstrap": {"B": B, "seed": 0, "note": "draws with an empty group are dropped (review HV-8)"},
            **analyse(sel)}

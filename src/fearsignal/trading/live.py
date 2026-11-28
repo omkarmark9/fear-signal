@@ -24,16 +24,22 @@ from . import calendar, engine, families as F, protocol, registry, signals
 LIVE_OUT = protocol.OUT / "live"
 
 
-def state(source: str = "yahoo"):
+def state(source: str = "yahoo", full: bool = False):
+    """Model 1 on the live panel and the rule features on the live price cache.
+
+    Returns (mk, st, rf, prices, report), plus model 1's features when ``full``. The
+    report records the names either cache restored from the archive (archive.py)."""
     from .. import pipeline
     mk, st, sig, feat, report = pipeline._live_state(source)
     prices = engine.Prices.load(live=True)
     if prices.dates[-1] != feat.obs.dates[-1]:
         raise RuntimeError(f"price cache ends {prices.dates[-1].date()} but the fear panel ends "
                            f"{feat.obs.dates[-1].date()}: refresh both (fearsignal live; fearsignal trading-data)")
+    if prices.report is not None:
+        report = {**report, "trade_from_archive": prices.report.get("from_archive", {})}
     inp = signals.from_live(mk, st, feat, prices)
     rf = signals.rule_features(inp, feat)
-    return mk, st, rf, prices, report
+    return (mk, st, rf, prices, report, feat) if full else (mk, st, rf, prices, report)
 
 
 def family_status(apply_prospective: bool = True) -> dict:
@@ -92,7 +98,11 @@ def _prospective_consequence(nd: dict) -> dict:
     if not ok:
         return {**nd, "prospective": "read.json is not from the committed declaration; ignored"}
     d = rd["decision"]
-    return {**nd, "tier": int(d["ND_tier_after"]), "why": f"prospective read: {d['why']}"}
+    # the live monitors restart after the sample: the read's tier already counts every
+    # in-sample firing (prospective.decide), so they must not lower it a second time
+    return {**nd, "tier": int(d["ND_tier_after"]), "why": f"prospective read: {d['why']}",
+            "prospective_read": {"window": rd["window"], "monitors_count_signals_after": rd["last_countable_signal"],
+                                 "tier_after_review": d.get("ND_tier_after_review")}}
 
 
 def model1_table(mk: pd.DataFrame, st: pd.DataFrame, rf: signals.RuleFeatures, days) -> pd.DataFrame:
@@ -178,14 +188,25 @@ def rf_exposure(rf, prices, status: dict, days) -> pd.Series:
     return E.reindex(days)
 
 
+def live_monitors(status: dict, rf, prices) -> dict:
+    """The declared live monitors (research/trading/PROSPECTIVE.md). They can lower ND's tier,
+    never raise it. Before the prospective read they count ND1 events signalled after
+    2026-11-27. Once the read applies, they count afresh from the sample's last countable
+    signal: the read's tier already includes every in-sample firing."""
+    from . import prospective
+    if status["ND"].get("tier", 0) <= 0:
+        return status
+    pr = status["ND"].get("prospective_read")
+    after = pd.Timestamp(pr["monitors_count_signals_after"]) if pr else prospective.LAST_KNOWN
+    return prospective.apply_monitor(status, prospective.nd_monitor(rf, prices, int(status["ND"]["tier"]),
+                                                                    after=after))
+
+
 def main(n_days: int = 6) -> dict:
     mk, st, rf, prices, report = state()
     days = mk.index[-n_days:]
     status = family_status()
-    # declared live monitors (research/trading/PROSPECTIVE.md): they can lower ND's tier, never raise it
-    from . import prospective
-    if status["ND"].get("tier", 0) > 0:
-        status = prospective.apply_monitor(status, prospective.nd_monitor(rf, prices, int(status["ND"]["tier"])))
+    status = live_monitors(status, rf, prices)
     m1 = model1_table(mk, st, rf, days)
     tk = tickets(rf, prices, status, days)
     E = rf_exposure(rf, prices, status, days)
@@ -203,8 +224,8 @@ def main(n_days: int = 6) -> dict:
     LIVE_OUT.mkdir(parents=True, exist_ok=True)
     acts = next_actions(tk, status, nxt) if len(tk) else []
     rec = {"as_of_close": str(prices.dates[-1].date()), "next_session": str(nxt.date()), "status": status,
-           "model1": m1.reset_index().astype(str).to_dict(orient="records"),
-           "tickets": tk.astype(str).to_dict(orient="records") if len(tk) else [],
+           "model1": _records(m1.reset_index()),
+           "tickets": _records(tk) if len(tk) else [],
            "next_session_actions": acts,
            "rf_exposure": {str(k.date()): float(v) for k, v in E.items()},
            "data": {k: v for k, v in report.items() if k != "history_bars_filled"}}
@@ -215,10 +236,22 @@ def main(n_days: int = 6) -> dict:
         k += 1
         path = LIVE_OUT / f"{base.name}_r{k}.json"
     rec["revision"] = k
-    path.write_text(json.dumps(rec, indent=1, default=str) + "\n")
+    path.write_text(json.dumps(protocol.jsonable(rec), indent=1, default=str, allow_nan=False) + "\n")
     print("\nnext-session actions:", json.dumps(acts, indent=1, default=str))
     print("wrote", path)
     return rec
+
+
+def _missing(v) -> bool:
+    try:
+        return bool(pd.isna(v))
+    except (TypeError, ValueError):       # a list or an array is a value, not a missing one
+        return False
+
+
+def _records(df: pd.DataFrame) -> list[dict]:
+    """Rows as strings, with a missing value as null (strict JSON: no NaN tokens)."""
+    return [{str(k): (None if _missing(v) else str(v)) for k, v in r.items()} for r in df.to_dict(orient="records")]
 
 
 def next_actions(tk: pd.DataFrame, status: dict, nxt: pd.Timestamp) -> list[dict]:

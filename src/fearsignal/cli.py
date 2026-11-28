@@ -24,6 +24,7 @@
     fearsignal trading-holdout --sha256 H   the single 2026 read of the selection
     fearsignal trading-live [--days N]      both models on recent sessions, and the next session's tickets
     fearsignal trading-prospective          the single prospective read (refuses before 400 sessions after 2026-11-27)
+        [--rerun-reason R] [--env-reason R] [--closed DATE ... --calendar-reason R]
 """
 
 from __future__ import annotations
@@ -98,6 +99,10 @@ def main(argv=None) -> None:
     tl.add_argument("--days", type=int, default=6)
     tq = sub.add_parser("trading-prospective")
     tq.add_argument("--rerun-reason", default=None)
+    tq.add_argument("--env-reason", default=None, help="logged reason to read under other package versions")
+    tq.add_argument("--closed", action="append", default=[], metavar="DATE",
+                    help="a scheduled session the NYSE did not hold (repeatable); needs --calendar-reason")
+    tq.add_argument("--calendar-reason", default=None, help="logged reason for the declared closures")
     a = ap.parse_args(argv)
 
     if a.cmd == "download-dev":
@@ -271,7 +276,8 @@ def _trading(a) -> None:
         live.main(a.days)
     elif a.cmd == "trading-prospective":
         from .trading import prospective
-        print(json.dumps(protocol.jsonable(prospective.read(a.rerun_reason)), indent=1))
+        print(json.dumps(protocol.jsonable(prospective.read(a.rerun_reason, a.env_reason, a.closed,
+                                                           a.calendar_reason)), indent=1))
 
 
 if __name__ == "__main__":

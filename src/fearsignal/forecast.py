@@ -47,7 +47,7 @@ M_WINDOW = 0.30        # "similar" market days: M_pct within +-0.30
 FLAG_LEVEL = 0.90      # central range used for flags
 ALARM = (5, 20)        # 5+ flags within 20 sessions -> investigate
 
-# NYSE early-close (1 pm) sessions, 2023-2026. 2026-07-02 is NOT one: July 4, 2026 is a
+# NYSE early-close (1 pm) sessions, 2023-2028. 2026-07-02 is NOT one: July 4, 2026 is a
 # Saturday, NYSE closed Friday July 3 and traded a full session on July 2 (only the bond
 # market closed early); its volume was 1.11x normal against 0.32-0.63x on every true
 # half-day. Corrected 2026-11-27 after the trading model's pre-backtest audit.

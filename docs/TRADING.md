@@ -235,13 +235,32 @@ market it adds no significant information.**
     is a hypothesis, not a finding.
 
 **3. The prospective test (`research/trading/PROSPECTIVE.md`).**
-- **Sample.** The first 400 NYSE sessions after 2026-11-27
-  (2026-11-30..2028-07-03, from the exchange calendar), read once by
-  `fearsignal trading-prospective`. The command refuses:
+- **Sample.** The first 400 sessions the NYSE holds after 2026-11-27
+  (2026-11-30..2028-07-03 on the exchange's published calendar), read
+  once by `fearsignal trading-prospective`.
+  - An unscheduled closure is declared at the read
+    (`--closed DATE --calendar-reason TEXT`). It is accepted only if no
+    name has a bar that day, and the sample then runs one session longer.
+  - Both datasets must hold exactly the sample's sessions: the trading
+    price cache and model 1's panel. Each session needs bars (closes and
+    opens) for at least 90% of the 134-name universe.
+- **The command refuses:**
   - until the sample is complete;
-  - unless the code tree, every committed input, the hash-locked raw
-    inputs and the environment match `config/trading_prospective.json`;
-  - if any trace of an earlier read exists, unless a reason is logged.
+  - unless the code tree, every committed input and the hash-locked raw
+    inputs match `config/trading_prospective.json`;
+  - unless Python and numpy, pandas, scipy and pyarrow match it, or a
+    reason is logged (`--env-reason`). yfinance and a digest of every
+    installed package are recorded only;
+  - if any trace of an earlier read exists, unless a reason is logged
+    (`--rerun-reason`);
+  - while another read is running.
+- **Inputs.** Every live input is hashed before and after loading and
+  copied byte for byte before any outcome is computed. Each read is kept
+  as its own `read_<time>.json`.
+- **Purged names.** Each live pull is archived per ticker. A name the
+  vendor stops serving (after an acquisition or a symbol change) is
+  restored from the archive, so it does not leave the read along with its
+  sample events.
 - **P2-1.** Does ND1's information persist? This is the v1 gate series;
   a test checks that it reproduces the 2026 holdout read exactly.
 - **P2-2.** Does model 1 still beat EWMA as a risk forecaster?
@@ -251,14 +270,24 @@ market it adds no significant information.**
   - P2-1: about 0.73 at the dev effect and about 0.30 at half of it;
   - P2-2: about 0.57 at the 2026 effect.
 - **Replications, outside the Holm family.**
-  - **The five v2 survivors** must reach a one-sided p < 0.01 and a
-    placebo percentile ≥ 0.95. They use a pinned earnings calendar that
-    covers the sample, or they are reported as not computable.
+  - **The five v2 survivors** must reach a one-sided p < 0.01 (CR1 t
+    against t(G−1)) and a placebo percentile ≥ 0.95.
+  - They use an earnings calendar fetched at read time by the declared
+    method (`research/trading/earnings_calendar.py`). If the calendar's
+    windows or data do not cover the sample, they are reported as not
+    computable.
   - **H_VOL2** is repeated on the 2027-01..2028-06 expiries.
 - **Live monitors.**
   - The declared sequential guard (every 25 events) and the rolling
-    40-trade demotion now run in `trading-live`.
-  - They can only lower ND's tier, and every firing is logged and stands.
+    40-trade demotion now run in `trading-live`, with the per-trade s.e.
+  - They can only lower ND's tier. Every firing is logged and stands:
+    the log, `data/raw/nd_monitor_firings.jsonl`, is git-ignored, so the
+    read's checkout cannot remove it.
+  - A firing is matched to the event it fired on, so a vendor revision
+    cannot turn one demotion into two.
+  - The read counts only firings logged up to the sample's end. After the
+    read, the monitors count afresh from the sample's last countable
+    signal, so in-sample firings are not applied twice.
   - Today there are no closed prospective events, so ND stays at Tier 1.
 
 **Net.** After v1, the 215-trial v2 search and the options test, model 2
@@ -336,8 +365,10 @@ variants in total. `candidates.md` holds every rule and threshold.
    hash of the committed selection. It is not pristine: an exploratory
    event study touched 2026 with different rules.
 6. **Prospective.** Live records are written before their session and
-   never overwritten. No pass criterion for a prospective read of model 2
-   has been declared yet.
+   never overwritten. The prospective read of model 2 is declared in
+   `research/trading/PROSPECTIVE.md`. Its claims are P2-1 (ND1's gate
+   series) and P2-2 (the risk yardstick against EWMA), each with
+   one-sided p < 0.05 under Holm, and its consequences are mechanical.
 
 ## Execution and accounting (`trading/engine.py`)
 
@@ -389,4 +420,5 @@ fearsignal trading-dev                     # once: writes config/trading_selecte
 fearsignal trading-holdout --sha256 <sha256 of config/trading_selected.json>   # once
 fearsignal trading-live --days 6           # both models on recent sessions, the next session, and the live monitors
 fearsignal trading-prospective             # once, from the declared code tree, after 400 sessions past 2026-11-27
+#   [--env-reason R] [--closed DATE --calendar-reason R] [--rerun-reason R]
 ```

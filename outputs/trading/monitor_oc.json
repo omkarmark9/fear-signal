@@ -1,0 +1,92 @@
+{
+ "N_events": 110,
+ "B": 4000,
+ "seed": 0,
+ "dev_events": 145,
+ "dev_episodes": 28,
+ "dev_mean": 0.023241741964393638,
+ "on_the_dev_sequence": {
+  "per_trade_se": {
+   "suspended_at": null,
+   "demotions_at": []
+  },
+  "cr1_as_first_coded": {
+   "suspended_at": null,
+   "demotions_at": [
+    85
+   ]
+  }
+ },
+ "scenarios": {
+  "dev effect": {
+   "per_trade_se": {
+    "P_guard": 0.061,
+    "P_at_least_one_demotion": 0.222,
+    "P_two_demotions": 0.012,
+    "P_tier0_from_tier1": 0.244
+   },
+   "cr1_as_first_coded": {
+    "P_guard": 0.21,
+    "P_at_least_one_demotion": 0.374,
+    "P_two_demotions": 0.046,
+    "P_tier0_from_tier1": 0.436
+   }
+  },
+  "half the dev effect": {
+   "per_trade_se": {
+    "P_guard": 0.185,
+    "P_at_least_one_demotion": 0.422,
+    "P_two_demotions": 0.053,
+    "P_tier0_from_tier1": 0.457
+   },
+   "cr1_as_first_coded": {
+    "P_guard": 0.307,
+    "P_at_least_one_demotion": 0.522,
+    "P_two_demotions": 0.098,
+    "P_tier0_from_tier1": 0.581
+   }
+  },
+  "zero": {
+   "per_trade_se": {
+    "P_guard": 0.396,
+    "P_at_least_one_demotion": 0.634,
+    "P_two_demotions": 0.153,
+    "P_tier0_from_tier1": 0.672
+   },
+   "cr1_as_first_coded": {
+    "P_guard": 0.448,
+    "P_at_least_one_demotion": 0.649,
+    "P_two_demotions": 0.169,
+    "P_tier0_from_tier1": 0.706
+   }
+  },
+  "-1% per event": {
+   "per_trade_se": {
+    "P_guard": 0.642,
+    "P_at_least_one_demotion": 0.802,
+    "P_two_demotions": 0.316,
+    "P_tier0_from_tier1": 0.832
+   },
+   "cr1_as_first_coded": {
+    "P_guard": 0.612,
+    "P_at_least_one_demotion": 0.776,
+    "P_two_demotions": 0.28,
+    "P_tier0_from_tier1": 0.82
+   }
+  },
+  "-2% per event": {
+   "per_trade_se": {
+    "P_guard": 0.856,
+    "P_at_least_one_demotion": 0.918,
+    "P_two_demotions": 0.532,
+    "P_tier0_from_tier1": 0.939
+   },
+   "cr1_as_first_coded": {
+    "P_guard": 0.817,
+    "P_at_least_one_demotion": 0.894,
+    "P_two_demotions": 0.463,
+    "P_tier0_from_tier1": 0.93
+   }
+  }
+ }
+}
